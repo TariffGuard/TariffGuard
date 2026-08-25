@@ -339,7 +339,6 @@ def seed_meter_readings(db: Session, factory_id: int):
     
     print(f"✅ Created {len(readings)} meter readings (7 days of hourly data)")
     return readings
-
 def main():
     """Main seed function"""
     print("=" * 60)
@@ -355,8 +354,17 @@ def main():
     db = SessionLocal()
     
     try:
-        # Clear existing data (optional - comment out if you want to keep existing data)
-        # clear_database()
+        # Clear existing data
+        print("\n🗑️  Clearing existing data...")
+        
+        # Delete in order (child tables first)
+        db.query(MeterReading).delete()
+        db.query(ProductionOrder).delete()
+        db.query(Machine).delete()
+        db.query(Tariff).delete()
+        db.query(Factory).delete()
+        db.commit()
+        print("✅ Existing data cleared!")
         
         # Seed data
         factory = seed_factory(db)
@@ -389,6 +397,3 @@ Next Steps:
         raise
     finally:
         db.close()
-
-if __name__ == "__main__":
-    main()

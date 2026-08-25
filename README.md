@@ -1,2 +1,25 @@
-# TariffGuard-
-AI-powered platform that performs energy and production optimatization. It helps manufacturing factories reduce their electricity costs by scheduling machine operations based on time-of-use tariffs, solar energy availability, weather forecasts, and Maximum Demand Indicator (MDI).
+# TariffGuard
+
+AI-Powered Energy & Production Optimization Platform
+
+## Overview
+TariffGuard is a decision-support platform for small textile factories that converts electricity tariffs, production requirements, solar availability, and maximum-demand constraints into an actionable production schedule.
+
+## Tech Stack
+- **Backend:** Python, FastAPI, SQLAlchemy
+- **Database:** MySQL
+- **Container:** Docker
+- **Testing:** Pytest
+
+## Quick Start
+
+### Prerequisites
+- Docker Desktop
+- Git
+
+### Setup
+
+1. Clone the repository:
+```bash
+git clone https://github.com/musfirah111/TariffGuard.git
+cd TariffGuard

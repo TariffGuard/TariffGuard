@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TariffGuard Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <h1>⚡ TariffGuard</h1>
+        <p>AI-Powered Energy & Production Optimization Platform</p>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="tabs">
+        <button class="tab-btn active" onclick="showTab('dashboard')">Dashboard</button>
+        <button class="tab-btn" onclick="showTab('factories')">Factories</button>
+        <button class="tab-btn" onclick="showTab('machines')">Machines</button>
+        <button class="tab-btn" onclick="showTab('orders')">Orders</button>
+        <button class="tab-btn" onclick="showTab('tariffs')">Tariffs</button>
+    </nav>
+
+    <!-- Dashboard Tab -->
+    <div id="dashboard" class="tab-content active">
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <h3>Total Factories</h3>
+                <p id="kpi-factories">-</p>
+            </div>
+            <div class="kpi-card">
+                <h3>Total Machines</h3>
+                <p id="kpi-machines">-</p>
+            </div>
+            <div class="kpi-card">
+                <h3>Active Orders</h3>
+                <p id="kpi-orders">-</p>
+            </div>
+            <div class="kpi-card">
+                <h3>Tariff Periods</h3>
+                <p id="kpi-tariffs">-</p>
+            </div>
+        </div>
+        
+        <div class="chart-container">
+            <h2>Recent Meter Readings</h2>
+            <canvas id="meterChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Factories Tab -->
+    <div id="factories" class="tab-content">
+        <div class="section-header">
+            <h2>🏭 Factories</h2>
+            <button class="btn-primary" onclick="showAddFactoryForm()">+ Add Factory</button>
+        </div>
+        
+        <div id="factoryForm" class="form-container hidden">
+            <h3>Add New Factory</h3>
+            <form id="addFactoryForm">
+                <div class="form-group">
+                    <label>Name:</label>
+                    <input type="text" id="factoryName" required>
+                </div>
+                <div class="form-group">
+                    <label>Location:</label>
+                    <input type="text" id="factoryLocation" value="Faisalabad">
+                </div>
+                <div class="form-group">
+                    <label>Tariff Category:</label>
+                    <input type="text" id="factoryTariff" value="Industrial">
+                </div>
+                <div class="form-group">
+                    <label>Sanctioned Load (kW):</label>
+                    <input type="number" id="factoryLoad" value="250">
+                </div>
+                <div class="form-group">
+                    <label>Solar Capacity (kW):</label>
+                    <input type="number" id="factorySolar" value="100">
+                </div>
+                <button type="submit" class="btn-primary">Create Factory</button>
+            </form>
+        </div>
+        
+        <div id="factoriesList" class="card-grid"></div>
+    </div>
+
+    <!-- Machines Tab -->
+    <div id="machines" class="tab-content">
+        <div class="section-header">
+            <h2>🔧 Machines</h2>
+            <button class="btn-primary" onclick="showAddMachineForm()">+ Add Machine</button>
+        </div>
+        
+        <div id="machineForm" class="form-container hidden">
+            <h3>Add New Machine</h3>
+            <form id="addMachineForm">
+                <div class="form-group">
+                    <label>Factory ID:</label>
+                    <input type="number" id="machineFactoryId" required>
+                </div>
+                <div class="form-group">
+                    <label>Name:</label>
+                    <input type="text" id="machineName" required>
+                </div>
+                <div class="form-group">
+                    <label>Type:</label>
+                    <input type="text" id="machineType" required>
+                </div>
+                <div class="form-group">
+                    <label>Power (kW):</label>
+                    <input type="number" id="machinePower" required>
+                </div>
+                <div class="form-group">
+                    <label>Shiftable:</label>
+                    <input type="checkbox" id="machineShiftable" checked>
+                </div>
+                <button type="submit" class="btn-primary">Create Machine</button>
+            </form>
+        </div>
+        
+        <div id="machinesList" class="card-grid"></div>
+    </div>
+
+    <!-- Orders Tab -->
+    <div id="orders" class="tab-content">
+        <div class="section-header">
+            <h2>📋 Production Orders</h2>
+            <button class="btn-primary" onclick="showAddOrderForm()">+ Add Order</button>
+        </div>
+        
+        <div id="orderForm" class="form-container hidden">
+            <h3>Add New Order</h3>
+            <form id="addOrderForm">
+                <div class="form-group">
+                    <label>Factory ID:</label>
+                    <input type="number" id="orderFactoryId" required>
+                </div>
+                <div class="form-group">
+                    <label>Order Number:</label>
+                    <input type="text" id="orderNo" required>
+                </div>
+                <div class="form-group">
+                    <label>Process:</label>
+                    <input type="text" id="orderProcess" required>
+                </div>
+                <div class="form-group">
+                    <label>Quantity:</label>
+                    <input type="number" id="orderQuantity" required>
+                </div>
+                <div class="form-group">
+                    <label>Duration (minutes):</label>
+                    <input type="number" id="orderDuration" required>
+                </div>
+                <div class="form-group">
+                    <label>Deadline:</label>
+                    <input type="datetime-local" id="orderDeadline" required>
+                </div>
+                <button type="submit" class="btn-primary">Create Order</button>
+            </form>
+        </div>
+        
+        <div id="ordersList" class="card-grid"></div>
+    </div>
+
+    <!-- Tariffs Tab -->
+    <div id="tariffs" class="tab-content">
+        <div class="section-header">
+            <h2>💰 Tariffs</h2>
+            <button class="btn-primary" onclick="showAddTariffForm()">+ Add Tariff</button>
+        </div>
+        
+        <div id="tariffForm" class="form-container hidden">
+            <h3>Add New Tariff</h3>
+            <form id="addTariffForm">
+                <div class="form-group">
+                    <label>Category:</label>
+                    <input type="text" id="tariffCategory" value="Industrial">
+                </div>
+                <div class="form-group">
+                    <label>Period Name:</label>
+                    <input type="text" id="tariffPeriod" required>
+                </div>
+                <div class="form-group">
+                    <label>Start Time:</label>
+                    <input type="time" id="tariffStart" required>
+                </div>
+                <div class="form-group">
+                    <label>End Time:</label>
+                    <input type="time" id="tariffEnd" required>
+                </div>
+                <div class="form-group">
+                    <label>Rate (Rs/kWh):</label>
+                    <input type="number" id="tariffRate" required>
+                </div>
+                <button type="submit" class="btn-primary">Create Tariff</button>
+            </form>
+        </div>
+        
+        <div id="tariffsList" class="card-grid"></div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

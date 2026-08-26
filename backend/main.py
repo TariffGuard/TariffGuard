@@ -13,6 +13,8 @@ from app.api.meter_reading import router as meter_reading_router
 from app.api.dashboard import router as dashboard_router
 from app.api.optimization import router as optimization_router
 from app.core.database import init_db
+from app.api.alert import router as alert_router
+
 
 app = FastAPI(
     title="TariffGuard API",
@@ -51,7 +53,7 @@ app.include_router(meter_reading_router)
 app.include_router(dashboard_router)
 app.include_router(optimization_router)
 app.include_router(auth_router)
-
+app.include_router(alert_router)
 # Serve static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 

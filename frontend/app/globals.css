@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #EDE8F2;
+  --color-background-soft: #F5F1F7;
+  
+  --color-glass: rgba(255,255,255,0.42);
+  --color-glass-strong: rgba(255,255,255,0.58);
+  --color-glass-subtle: rgba(255,255,255,0.28);
+  
+  --color-primary: #5B3F91;
+  --color-primary-soft: #8066B3;
+  --color-primary-light: #E6DDF2;
+  
+  --color-text-primary: #171522;
+  --color-text-secondary: #55515F;
+  --color-text-muted: #85808D;
+  
+  --color-energy: #E5A044;
+  --color-energy-soft: #F8E7CC;
+  
+  --color-success: #4F9B68;
+  --color-success-soft: #DDEDE2;
+  
+  --color-warning: #E47B52;
+  --color-warning-soft: #F6DED4;
+  
+  --color-neutral: #B9B7BC;
+
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+
+  --shadow-glass: 0 12px 40px rgba(62, 45, 80, 0.08);
+  --shadow-soft: 0 8px 30px rgba(58, 42, 76, 0.07);
+}
+
+@layer utilities {
+  .glass-panel {
+    background: rgba(255,255,255,0.42);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(255,255,255,0.65);
+    box-shadow: 0 12px 40px rgba(62,45,80,0.08);
+  }
+  
+  .glass-card {
+    background: rgba(255,255,255,0.34);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,0.55);
+  }
+
+  .fabric-background {
+    background-color: var(--color-background);
+    background-image: radial-gradient(circle at center, rgba(155,130,190,0.15) 0%, transparent 60%);
+    position: relative;
+  }
+  
+  .fabric-background::before {
+    content: "";
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-image: url('/fabric.png');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    opacity: 0.1;
+    pointer-events: none;
+    z-index: -1;
+  }
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+}
+

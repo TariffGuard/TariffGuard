@@ -3,11 +3,13 @@ from app.models.machine import Machine
 from app.models.production_order import ProductionOrder
 from app.models.tariff import Tariff
 from app.models.meter_reading import MeterReading
+from app.models.user import User
 
 __all__ = [
     "Factory",
     "Machine",
     "ProductionOrder",
     "Tariff",
-    "MeterReading"
+    "MeterReading",
+    "User"
 ]

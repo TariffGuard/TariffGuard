@@ -28,6 +28,7 @@ from app.core.error_handlers import (
     sqlalchemy_error_handler,
     generic_error_handler
 )
+from app.api.auth import router as auth_router
 
 app.add_exception_handler(RequestValidationError, validation_error_handler)
 app.add_exception_handler(SQLAlchemyError, sqlalchemy_error_handler)
@@ -49,6 +50,7 @@ app.include_router(tariff_router)
 app.include_router(meter_reading_router)
 app.include_router(dashboard_router)
 app.include_router(optimization_router)
+app.include_router(auth_router)
 
 # Serve static files
 app.mount("/static", StaticFiles(directory="static"), name="static")

@@ -3,11 +3,94 @@ import { GlassPanel } from '@/components/ui/glass_panel';
 import { Button } from '@/components/ui/button';
 import { 
   Building2, Zap, Users, Settings as SettingsIcon, 
-  Plus, Edit2, Trash2, Mail, ChevronDown
+  Plus, Edit2, Trash2, Mail, ChevronDown, Loader2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useState, useEffect } from 'react';
+import { fetchApi } from '@/lib/api';
+
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 export default function SettingsPage() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{type: 'success'|'error', text: string} | null>(null);
+
+  const [formData, setFormData] = useState({
+    name: '',
+    location: '',
+    tariff_category: 'Industrial TOU — A-1',
+    sanctioned_load_kw: 0,
+    solar_capacity_kw: 0,
+    operating_hours_start: '08:00',
+    operating_hours_end: '22:00',
+    working_days: [] as string[]
+  });
+
+  useEffect(() => {
+    const loadFactory = async () => {
+      try {
+        const data = await fetchApi('/api/factories/1');
+        const [start, end] = (data.operating_hours || '08:00-22:00').split('-');
+        
+        let wDays: string[] = [];
+        if (data.working_days === 'Mon-Sat') wDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        else if (data.working_days) wDays = data.working_days.split(',');
+
+        setFormData({
+          name: data.name || '',
+          location: data.location || '',
+          tariff_category: data.tariff_category || 'Industrial TOU — A-1',
+          sanctioned_load_kw: data.sanctioned_load_kw || 0,
+          solar_capacity_kw: data.solar_capacity_kw || 0,
+          operating_hours_start: start || '08:00',
+          operating_hours_end: end || '22:00',
+          working_days: wDays
+        });
+      } catch (err) {
+        console.error(err);
+        setMessage({ type: 'error', text: 'Failed to load factory details.' });
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadFactory();
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setMessage(null);
+    try {
+      const payload = {
+        name: formData.name,
+        location: formData.location,
+        tariff_category: formData.tariff_category,
+        sanctioned_load_kw: Number(formData.sanctioned_load_kw),
+        solar_capacity_kw: Number(formData.solar_capacity_kw),
+        operating_hours: `${formData.operating_hours_start}-${formData.operating_hours_end}`,
+        working_days: formData.working_days.join(',')
+      };
+      await fetchApi('/api/factories/1', {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      });
+      setMessage({ type: 'success', text: 'Factory settings saved successfully.' });
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || 'Failed to save settings.' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-[50vh] flex-col gap-4 items-center justify-center text-[var(--color-text-secondary)]">
+        <Loader2 className="h-8 w-8 animate-spin text-[var(--color-primary)]" />
+        <p>Loading settings...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 text-[var(--color-text-primary)] max-w-5xl mx-auto space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-end">
@@ -24,12 +107,19 @@ export default function SettingsPage() {
           <h3 className="font-semibold text-lg text-[var(--color-primary)]">Factory Profile</h3>
         </div>
         
+        {message && (
+          <div className={cn("mb-6 p-3 rounded text-sm font-medium", message.type === 'success' ? "bg-[var(--color-success-soft)] text-[var(--color-success)]" : "bg-red-500/20 text-red-500")}>
+            {message.text}
+          </div>
+        )}
+        
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-1.5">
             <label className="text-sm font-medium text-[var(--color-text-secondary)]">Factory Name</label>
             <input 
               type="text" 
-              defaultValue="Al-Noor Textile Mills" 
+              value={formData.name}
+              onChange={e => setFormData({...formData, name: e.target.value})}
               className="w-full px-3 py-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] text-sm focus:outline-none focus:border-[var(--color-primary)]"
             />
           </div>
@@ -37,17 +127,22 @@ export default function SettingsPage() {
             <label className="text-sm font-medium text-[var(--color-text-secondary)]">Location</label>
             <input 
               type="text" 
-              defaultValue="Faisalabad, Punjab" 
+              value={formData.location}
+              onChange={e => setFormData({...formData, location: e.target.value})}
               className="w-full px-3 py-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] text-sm focus:outline-none focus:border-[var(--color-primary)]"
             />
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium text-[var(--color-text-secondary)]">Tariff Category</label>
             <div className="relative">
-              <select className="w-full px-3 py-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] text-sm focus:outline-none focus:border-[var(--color-primary)] appearance-none pr-8">
-                <option>Industrial TOU — A-1</option>
-                <option>Industrial TOU — A-2</option>
-                <option>Commercial</option>
+              <select 
+                value={formData.tariff_category}
+                onChange={e => setFormData({...formData, tariff_category: e.target.value})}
+                className="w-full px-3 py-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] text-sm focus:outline-none focus:border-[var(--color-primary)] appearance-none pr-8">
+                <option value="Industrial TOU — A-1">Industrial TOU — A-1</option>
+                <option value="Industrial TOU — A-2">Industrial TOU — A-2</option>
+                <option value="Commercial">Commercial</option>
+                <option value="Industrial">Industrial</option>
               </select>
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)] pointer-events-none" />
             </div>
@@ -56,7 +151,8 @@ export default function SettingsPage() {
             <label className="text-sm font-medium text-[var(--color-text-secondary)]">Sanctioned Load (kW)</label>
             <input 
               type="number" 
-              defaultValue="250" 
+              value={formData.sanctioned_load_kw}
+              onChange={e => setFormData({...formData, sanctioned_load_kw: Number(e.target.value)})}
               className="w-full px-3 py-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] text-sm font-mono focus:outline-none focus:border-[var(--color-primary)]"
             />
           </div>
@@ -64,24 +160,36 @@ export default function SettingsPage() {
             <label className="text-sm font-medium text-[var(--color-text-secondary)]">Solar Capacity (kW)</label>
             <input 
               type="number" 
-              defaultValue="100" 
+              value={formData.solar_capacity_kw}
+              onChange={e => setFormData({...formData, solar_capacity_kw: Number(e.target.value)})}
               className="w-full px-3 py-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] text-sm font-mono focus:outline-none focus:border-[var(--color-primary)]"
             />
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium text-[var(--color-text-secondary)]">Operating Hours</label>
             <div className="flex items-center gap-2">
-              <input type="time" defaultValue="08:00" className="flex-1 px-3 py-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] text-sm font-mono focus:outline-none focus:border-[var(--color-primary)]" />
+              <input type="time" value={formData.operating_hours_start} onChange={e => setFormData({...formData, operating_hours_start: e.target.value})} className="flex-1 px-3 py-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] text-sm font-mono focus:outline-none focus:border-[var(--color-primary)]" />
               <span className="text-[var(--color-text-muted)] text-sm">to</span>
-              <input type="time" defaultValue="22:00" className="flex-1 px-3 py-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] text-sm font-mono focus:outline-none focus:border-[var(--color-primary)]" />
+              <input type="time" value={formData.operating_hours_end} onChange={e => setFormData({...formData, operating_hours_end: e.target.value})} className="flex-1 px-3 py-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] text-sm font-mono focus:outline-none focus:border-[var(--color-primary)]" />
             </div>
           </div>
           <div className="md:col-span-2 space-y-2 mt-2">
             <label className="text-sm font-medium text-[var(--color-text-secondary)]">Working Days</label>
             <div className="flex flex-wrap gap-3">
-              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => (
+              {DAYS.map((day) => (
                 <label key={day} className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" defaultChecked={i < 6} className="w-4 h-4 rounded text-[var(--color-primary)] focus:ring-[var(--color-primary)]" />
+                  <input 
+                    type="checkbox" 
+                    checked={formData.working_days.includes(day)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setFormData({...formData, working_days: [...formData.working_days, day]});
+                      } else {
+                        setFormData({...formData, working_days: formData.working_days.filter(d => d !== day)});
+                      }
+                    }}
+                    className="w-4 h-4 rounded text-[var(--color-primary)] focus:ring-[var(--color-primary)] accent-[var(--color-primary)]" 
+                  />
                   <span className="text-sm">{day}</span>
                 </label>
               ))}
@@ -89,8 +197,13 @@ export default function SettingsPage() {
           </div>
         </div>
         <div className="mt-8 flex justify-end">
-          <Button className="bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] px-6 rounded-[var(--radius-sm)] border-none">
-            Save Changes
+          <Button 
+            onClick={handleSave} 
+            disabled={saving}
+            className="bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] px-6 rounded-[var(--radius-sm)] border-none"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+            {saving ? 'Saving...' : 'Save Changes'}
           </Button>
         </div>
       </GlassPanel>
@@ -102,7 +215,12 @@ export default function SettingsPage() {
             <Zap className="w-5 h-5 text-[var(--color-success)]" />
             <h3 className="font-semibold text-lg text-[var(--color-primary)]">Tariff Configuration</h3>
           </div>
-          <Button variant="outline" className="border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary-light)] h-9 px-4 text-sm bg-transparent">
+          <Button 
+            variant="outline" 
+            onClick={() => alert('Add Period coming soon (Demo only - use Tariff Calendar page)')}
+            title="Coming soon"
+            className="border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary-light)] h-9 px-4 text-sm bg-transparent"
+          >
             <Plus className="w-4 h-4 mr-2" />
             Add Period
           </Button>
@@ -153,8 +271,14 @@ export default function SettingsPage() {
           <div className="flex items-center gap-2">
             <Users className="w-5 h-5 text-[var(--color-energy)]" />
             <h3 className="font-semibold text-lg text-[var(--color-primary)]">Team Members</h3>
+            <span className="bg-[var(--color-energy-soft)] text-[var(--color-energy)] text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ml-2">Demo Only</span>
           </div>
-          <Button variant="outline" className="border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary-light)] h-9 px-4 text-sm bg-transparent">
+          <Button 
+            variant="outline" 
+            onClick={() => alert('Invite Member coming soon (Demo only)')}
+            title="Coming soon"
+            className="border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary-light)] h-9 px-4 text-sm bg-transparent"
+          >
             <Mail className="w-4 h-4 mr-2" />
             Invite Member
           </Button>

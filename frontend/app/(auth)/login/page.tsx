@@ -1,56 +1,86 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, Suspense, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/auth_context';
 import { GlassPanel } from '@/components/ui/glass_panel';
 import { Button } from '@/components/ui/button';
-import { Zap, Eye, EyeOff } from 'lucide-react';
+import { Zap, Eye, EyeOff, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 
 type Role = 'Owner' | 'Manager' | 'Supervisor';
 
-export default function LoginPage() {
+function LoginContent() {
   const [showPassword, setShowPassword] = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   
-  const { login } = useAuth();
+  const { login, demoLogin } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const handleAuth = (e?: React.FormEvent, roleOverride?: Role) => {
-    if (e) e.preventDefault();
-    const roleToUse = roleOverride || 'Owner';
-    login(roleToUse);
+  useEffect(() => {
+    const usernameParam = searchParams.get('username');
+    if (usernameParam) {
+      setUsername(usernameParam);
+      setSuccessMsg('Account created successfully. Please login.');
+    }
+  }, [searchParams]);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError('');
+    setSuccessMsg('');
+    try {
+      await login(username, password);
+      router.push('/dashboard');
+    } catch (err: any) {
+      if (err.message?.toLowerCase().includes('401') || err.message?.toLowerCase().includes('invalid')) {
+        setError('Invalid username or password');
+      } else {
+        setError(err.message || 'Failed to login');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDemo = (roleOverride: Role) => {
+    demoLogin(roleOverride);
     router.push('/dashboard');
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6 text-[var(--color-text-primary)]">
-      
-      {/* Header Branding */}
-      <div className="text-center mb-8">
-        <div className="flex items-center justify-center gap-2 mb-3">
-          <div className="w-8 h-8 rounded-[var(--radius-sm)] bg-[var(--color-primary)] flex items-center justify-center text-white">
-            <Zap className="w-5 h-5 fill-current" />
-          </div>
-          <span className="font-bold text-2xl text-[var(--color-primary)] tracking-tight">TariffGuard</span>
-        </div>
-        <p className="text-sm font-medium text-[var(--color-text-muted)]">AI-Powered Energy & Production Optimization</p>
-        <p className="text-xs text-[var(--color-text-muted)]">For Pakistani Textile Factories</p>
-      </div>
-
-      {/* Main Glass Card */}
+    <>
       <GlassPanel className="w-full p-8 rounded-[var(--radius-lg)] shadow-glass transition-all duration-300 max-w-[440px]">
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
           <h2 className="text-xl font-semibold mb-1">Welcome Back</h2>
           <p className="text-sm text-[var(--color-text-secondary)] mb-8">Login to your workspace</p>
           
-          <form onSubmit={handleAuth} className="space-y-5">
+          <form onSubmit={handleLogin} className="space-y-5">
+            {successMsg && (
+              <div className="p-3 bg-green-100/50 border border-green-500/50 text-green-700 text-sm rounded-[var(--radius-sm)] flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                {successMsg}
+              </div>
+            )}
+            {error && (
+              <div className="p-3 bg-red-100/50 border border-red-500/50 text-red-700 text-sm rounded-[var(--radius-sm)]">
+                {error}
+              </div>
+            )}
             <div>
-              <label className="block text-[11px] uppercase tracking-wider font-semibold text-[var(--color-text-secondary)] mb-2">Email</label>
+              <label className="block text-[11px] uppercase tracking-wider font-semibold text-[var(--color-text-secondary)] mb-2">Username</label>
               <input 
-                type="email" 
-                placeholder="ahmed@alnoor.com" 
+                type="text" 
+                placeholder="Enter your username" 
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 className="w-full bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] px-3 py-3 text-sm focus:outline-none focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] transition-all"
                 required
               />
@@ -62,6 +92,8 @@ export default function LoginPage() {
                 <input 
                   type={showPassword ? "text" : "password"} 
                   placeholder="••••••••" 
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                   className="w-full bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] px-3 py-3 text-sm font-mono focus:outline-none focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] transition-all"
                   required
                 />
@@ -83,7 +115,9 @@ export default function LoginPage() {
               <a href="#" className="text-sm font-medium text-[var(--color-primary)] hover:underline">Forgot password?</a>
             </div>
 
-            <Button type="submit" variant="primary" className="w-full h-12 text-base mt-2 shadow-soft">Login</Button>
+            <Button type="submit" variant="primary" className="w-full h-12 text-base mt-2 shadow-soft" disabled={isLoading}>
+              {isLoading ? 'Logging in...' : 'Login'}
+            </Button>
           </form>
 
           <div className="relative my-8">
@@ -115,11 +149,32 @@ export default function LoginPage() {
       <GlassPanel className="w-full max-w-[440px] mt-6 p-5 rounded-[var(--radius-md)] border-[var(--color-primary-light)] text-center">
         <h4 className="text-sm font-semibold text-[var(--color-primary)] mb-1">Quick Access</h4>
         <p className="text-xs text-[var(--color-text-secondary)] mb-4">Explore TariffGuard with pre-loaded factory data.</p>
-        <Button variant="outline" className="w-full h-11 border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary-light)]" onClick={() => handleAuth(undefined, 'Manager')}>
+        <Button variant="outline" className="w-full h-11 border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary-light)]" onClick={() => handleDemo('Manager')}>
           Enter Demo Mode
         </Button>
       </GlassPanel>
+    </>
+  );
+}
 
+export default function LoginPage() {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center p-6 text-[var(--color-text-primary)]">
+      {/* Header Branding */}
+      <div className="text-center mb-8">
+        <div className="flex items-center justify-center gap-2 mb-3">
+          <div className="w-8 h-8 rounded-[var(--radius-sm)] bg-[var(--color-primary)] flex items-center justify-center text-white">
+            <Zap className="w-5 h-5 fill-current" />
+          </div>
+          <span className="font-bold text-2xl text-[var(--color-primary)] tracking-tight">TariffGuard</span>
+        </div>
+        <p className="text-sm font-medium text-[var(--color-text-muted)]">AI-Powered Energy & Production Optimization</p>
+        <p className="text-xs text-[var(--color-text-muted)]">For Pakistani Textile Factories</p>
+      </div>
+      
+      <Suspense fallback={<div className="text-sm text-[var(--color-text-secondary)]">Loading...</div>}>
+        <LoginContent />
+      </Suspense>
     </div>
   );
 }

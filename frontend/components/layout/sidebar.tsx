@@ -2,25 +2,37 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { LayoutDashboard, CalendarClock, Server, Bell, CalendarDays, FileBarChart, Settings, Calculator, Activity } from 'lucide-react';
+import { LayoutDashboard, CalendarClock, Server, Bell, CalendarDays, FileBarChart, Settings, Calculator, Activity, MessageCircle } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { useAuth } from '@/context/auth_context';
+import { useState, useEffect } from 'react';
+import { fetchApi } from '@/lib/api';
 
-const navItems = [
+import { LucideIcon } from 'lucide-react';
+
+const navItems: Array<{name: string, href: string, icon: LucideIcon, badge?: number}> = [
   { name: 'Overview', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Live Monitoring', href: '/dashboard/live_monitoring', icon: Activity },
   { name: 'Schedule Optimizer', href: '/dashboard/schedule_optimizer', icon: CalendarClock },
   { name: 'Tariff Calendar', href: '/dashboard/tariff_calendar', icon: CalendarDays },
-  { name: 'Alerts & Anomalies', href: '/dashboard/alerts', icon: Bell, badge: 3 },
+  { name: 'Alerts & Anomalies', href: '/dashboard/alerts', icon: Bell },
   { name: 'Reports', href: '/dashboard/reports', icon: FileBarChart },
   { name: 'Cost Analysis', href: '/dashboard/cost_analysis', icon: Calculator },
   { name: 'Machines', href: '/dashboard/machines', icon: Server },
+  { name: 'AI Chat', href: '/dashboard/chat', icon: MessageCircle },
   { name: 'Settings', href: '/dashboard/settings', icon: Settings },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const { role } = useAuth();
+  const [unresolvedCount, setUnresolvedCount] = useState(0);
+
+  useEffect(() => {
+    fetchApi('/api/alerts/stats/1')
+      .then(data => setUnresolvedCount(data.unresolved || 0))
+      .catch(console.error);
+  }, [pathname]);
 
   return (
     <aside className="w-[260px] glass-panel h-full flex flex-col m-4 rounded-[var(--radius-lg)] border-r border-[rgba(255,255,255,0.65)] shrink-0 overflow-hidden">
@@ -50,7 +62,10 @@ export function Sidebar() {
                 <item.icon className={cn("w-5 h-5", isActive ? "text-[var(--color-primary)]" : "text-[var(--color-text-muted)]")} />
                 {item.name}
               </div>
-              {item.badge && (
+              {item.name === 'Alerts & Anomalies' && unresolvedCount > 0 && (
+                <Badge variant="error" className="px-1.5 py-0.5 text-[10px] min-w-[20px] justify-center">{unresolvedCount}</Badge>
+              )}
+              {item.name !== 'Alerts & Anomalies' && item.badge && (
                 <Badge variant="error" className="px-1.5 py-0.5 text-[10px] min-w-[20px] justify-center">{item.badge}</Badge>
               )}
             </Link>

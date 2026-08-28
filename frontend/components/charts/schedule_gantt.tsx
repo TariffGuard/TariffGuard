@@ -25,19 +25,19 @@ interface ScheduleGanttProps {
 }
 
 export function ScheduleGantt({ machines, jobs, isOptimized, showBaseline, selectedJobId, onJobClick }: ScheduleGanttProps) {
-  const startHour = 6;
-  const endHour = 22;
-  const totalHours = endHour - startHour;
+  const startMins = 6 * 60; // 06:00
+  const endMins = 22 * 60; // 22:00
+  const totalMins = endMins - startMins; // 960
   
-  const getPositionPercent = (hour: number) => Math.max(0, Math.min(100, ((hour - startHour) / totalHours) * 100));
-  const getWidthPercent = (startH: number, endH: number) => getPositionPercent(endH) - getPositionPercent(startH);
+  const getPositionPercent = (mins: number) => Math.max(0, Math.min(100, ((mins - startMins) / totalMins) * 100));
+  const getWidthPercent = (startM: number, endM: number) => getPositionPercent(endM) - getPositionPercent(startM);
 
-  const solarStart = getPositionPercent(9);
-  const solarWidth = getWidthPercent(9, 16);
-  const peakStart = getPositionPercent(18);
-  const peakWidth = getWidthPercent(18, 22);
-  const currentHour = 14.5;
-  const currentPos = getPositionPercent(currentHour);
+  const solarStart = getPositionPercent(9 * 60);
+  const solarWidth = getWidthPercent(9 * 60, 16 * 60);
+  const peakStart = getPositionPercent(18 * 60);
+  const peakWidth = getWidthPercent(18 * 60, 22 * 60);
+  const currentMins = 14 * 60 + 30; // 14:30
+  const currentPos = getPositionPercent(currentMins);
 
   const [hoveredJob, setHoveredJob] = useState<string | null>(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
@@ -53,7 +53,7 @@ export function ScheduleGantt({ machines, jobs, isOptimized, showBaseline, selec
               <div 
                 key={hour} 
                 className="absolute font-mono text-xs text-[var(--color-text-muted)] transform -translate-x-1/2"
-                style={{ left: `${getPositionPercent(hour)}%` }}
+                style={{ left: `${getPositionPercent(hour * 60)}%` }}
               >
                 {hour.toString().padStart(2, '0')}:00
               </div>
@@ -99,12 +99,12 @@ export function ScheduleGantt({ machines, jobs, isOptimized, showBaseline, selec
                   <p className="text-xs text-[var(--color-text-muted)] font-normal font-mono">{machine.type} • {machine.power_kw}kW</p>
                 </div>
                 
-                <div className="flex-1 h-14 bg-[rgba(255,255,255,0.2)] rounded-[var(--radius-sm)] relative border border-[rgba(255,255,255,0.4)]">
+                <div className="flex-1 h-[40px] bg-[rgba(255,255,255,0.2)] rounded-[var(--radius-sm)] relative border border-[rgba(255,255,255,0.4)]">
                   {[6, 8, 10, 12, 14, 16, 18, 20, 22].map((hour) => (
                     <div 
                       key={hour} 
                       className="absolute top-0 bottom-0 w-px bg-[rgba(255,255,255,0.3)]"
-                      style={{ left: `${getPositionPercent(hour)}%` }}
+                      style={{ left: `${getPositionPercent(hour * 60)}%` }}
                     />
                   ))}
 
@@ -143,19 +143,19 @@ export function ScheduleGantt({ machines, jobs, isOptimized, showBaseline, selec
                         {/* Ghost Baseline */}
                         {isOptimized && showBaseline && (job.baseline_start !== job.optimized_start) && (
                           <div 
-                            className="absolute top-2 bottom-2 rounded-[var(--radius-sm)] border-2 border-dashed border-gray-400 bg-transparent opacity-40 pointer-events-none transition-all duration-500"
-                            style={{ left: `${baseLeft}%`, width: `${baseWidth}%` }}
+                            className="absolute border-2 border-dashed border-gray-400 bg-transparent opacity-40 pointer-events-none transition-all duration-500"
+                            style={{ left: `${baseLeft}%`, width: `${baseWidth}%`, top: '5px', height: '28px', borderRadius: '6px' }}
                           />
                         )}
                         
                         {/* Actual Job Block */}
                         <div 
                           className={cn(
-                            "absolute top-2 bottom-2 rounded-[var(--radius-sm)] border flex items-center justify-center cursor-pointer transition-all duration-500 overflow-hidden",
+                            "absolute border flex items-center justify-center cursor-pointer transition-all duration-500 overflow-hidden",
                             bgColor, borderColor,
                             isSelected ? "ring-2 ring-offset-2 ring-[var(--color-primary)] scale-[1.02] shadow-lg z-20 border-[var(--color-primary)]" : "hover:shadow-md z-10 hover:brightness-95"
                           )}
-                          style={{ left: `${left}%`, width: `${width}%` }}
+                          style={{ left: `${left}%`, width: `${width}%`, top: '5px', height: '28px', borderRadius: '6px' }}
                           onClick={() => onJobClick(job.id)}
                           onMouseEnter={(e) => {
                             setHoveredJob(job.id);

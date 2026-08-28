@@ -4,6 +4,7 @@ Creates demo data for testing and demonstration
 """
 
 from datetime import datetime, timedelta, date, time
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal, init_db, Base, engine
 from app.models.factory import Factory
@@ -28,7 +29,7 @@ def seed_factory(db: Session):
         location="Faisalabad, Pakistan",
         tariff_category="Industrial",
         sanctioned_load_kw=250,
-        solar_capacity_kw=100,
+        solar_capacity_kw=200,
         operating_hours="08:00-22:00",
         working_days="Mon-Sat"
     )
@@ -222,7 +223,7 @@ def seed_production_orders(db: Session, factory_id: int):
             "deadline": today.replace(hour=18, minute=0),
             "priority": 1,
             "machine_options": [1, 2],
-            "status": "pending"
+            "status": "completed"
         },
         {
             "order_no": "ORD-002",
@@ -233,7 +234,7 @@ def seed_production_orders(db: Session, factory_id: int):
             "deadline": today.replace(hour=20, minute=0),
             "priority": 2,
             "machine_options": [1, 2],
-            "status": "pending"
+            "status": "completed"
         },
         {
             "order_no": "ORD-003",
@@ -244,7 +245,7 @@ def seed_production_orders(db: Session, factory_id: int):
             "deadline": tomorrow.replace(hour=12, minute=0),
             "priority": 1,
             "machine_options": [3, 4],
-            "status": "pending"
+            "status": "running"
         },
         {
             "order_no": "ORD-004",
@@ -255,7 +256,7 @@ def seed_production_orders(db: Session, factory_id: int):
             "deadline": tomorrow.replace(hour=18, minute=0),
             "priority": 1,
             "machine_options": [5, 6],
-            "status": "pending",
+            "status": "running",
             "locked": True
         },
         {
@@ -267,6 +268,50 @@ def seed_production_orders(db: Session, factory_id: int):
             "deadline": today.replace(hour=22, minute=0),
             "priority": 3,
             "machine_options": [7],
+            "status": "pending"
+        },
+        {
+            "order_no": "ORD-006",
+            "process": "Dyeing",
+            "quantity": 2000,
+            "duration_minutes": 300,
+            "earliest_start": today.replace(hour=8, minute=0),
+            "deadline": tomorrow.replace(hour=18, minute=0),
+            "priority": 1,
+            "machine_options": [1, 2],
+            "status": "pending"
+        },
+        {
+            "order_no": "ORD-007",
+            "process": "Spinning",
+            "quantity": 1500,
+            "duration_minutes": 240,
+            "earliest_start": today.replace(hour=10, minute=0),
+            "deadline": tomorrow.replace(hour=18, minute=0),
+            "priority": 2,
+            "machine_options": [3, 4],
+            "status": "pending"
+        },
+        {
+            "order_no": "ORD-008",
+            "process": "Finishing",
+            "quantity": 3000,
+            "duration_minutes": 180,
+            "earliest_start": today.replace(hour=12, minute=0),
+            "deadline": tomorrow.replace(hour=20, minute=0),
+            "priority": 2,
+            "machine_options": [7],
+            "status": "pending"
+        },
+        {
+            "order_no": "ORD-009",
+            "process": "Packaging",
+            "quantity": 5000,
+            "duration_minutes": 240,
+            "earliest_start": today.replace(hour=14, minute=0),
+            "deadline": tomorrow.replace(hour=22, minute=0),
+            "priority": 3,
+            "machine_options": [8],
             "status": "pending"
         }
     ]
@@ -305,20 +350,24 @@ def seed_meter_readings(db: Session, factory_id: int):
             
             # Base load varies by time of day
             if 8 <= hour <= 18:
-                base_load = 150  # Working hours
+                base_load = 210  # Working hours, near limit
             elif 18 <= hour <= 22:
-                base_load = 120  # Evening
+                base_load = 160  # Evening
             else:
-                base_load = 50   # Night
+                base_load = 70   # Night
             
             # Add some randomness
-            load_variation = random.uniform(-20, 20)
+            load_variation = random.uniform(-10, 25)
             kwh = base_load + load_variation
-            kw = kwh * random.uniform(0.8, 1.2)
+            # Ensure kw occasionally spikes near 240-248
+            kw = kwh * random.uniform(0.95, 1.1)
+            if kw > 248: kw = 248  # Keep just under 250 limit
             
-            # Solar generation during day
-            if 8 <= hour <= 17:
-                solar_kwh = 100 * (1 - abs(hour - 12.5) / 5) * random.uniform(0.5, 1.0)
+            # Solar generation during day (09:00 - 16:00)
+            if 9 <= hour <= 16:
+                # Peak solar at 12.5 is ~ 180 (which is ~75% of 240)
+                solar_kwh = 180 * (1 - abs(hour - 12.5) / 4) * random.uniform(0.85, 1.0)
+                if solar_kwh < 0: solar_kwh = 0
             else:
                 solar_kwh = 0
             
@@ -397,3 +446,6 @@ Next Steps:
         raise
     finally:
         db.close()
+
+if __name__ == "__main__":
+    main()

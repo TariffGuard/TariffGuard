@@ -2,19 +2,15 @@
 import { GlassPanel } from '@/components/ui/glass_panel';
 import { Button } from '@/components/ui/button';
 import { 
-  Calendar as CalendarIcon, Download, FileText, ChevronDown 
+  Calendar as CalendarIcon, Download, FileText, ChevronDown, Loader2 
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useState, useEffect } from 'react';
+import { fetchApi } from '@/lib/api';
 import { 
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip,
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Legend
 } from 'recharts';
-
-const costData = [
-  { name: 'Off-Peak Energy', value: 52, color: 'rgba(255,255,255,0.4)' },
-  { name: 'Peak Energy', value: 31, color: 'var(--color-warning)' },
-  { name: 'Solar Offset', value: 17, color: 'var(--color-success)' },
-];
 
 const savingsTrendData = [
   { date: '01 Aug', savings: 18000, cumulative: 18000 },
@@ -34,6 +30,50 @@ const savingsTrendData = [
 ];
 
 export default function ReportsPage() {
+  const [stats, setStats] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadStats = async () => {
+      try {
+        const data = await fetchApi('/api/meter-readings/stats/1');
+        setStats(data);
+      } catch (err: any) {
+        setError(err.message || 'Failed to load report stats');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadStats();
+  }, []);
+
+  if (loading && !stats) {
+    return (
+      <div className="flex h-[50vh] flex-col gap-4 items-center justify-center text-[var(--color-text-secondary)]">
+        <Loader2 className="h-8 w-8 animate-spin text-[var(--color-primary)]" />
+        <p>Loading report data...</p>
+      </div>
+    );
+  }
+
+  const totalKwh = stats?.total_kwh || 0;
+  const solarKwh = stats?.total_solar_kwh || 0;
+  const peakKw = stats?.peak_kw || 0;
+  
+  // Derived cost metrics
+  const estimatedCost = totalKwh * 28.5; 
+  const solarSavings = solarKwh * 28.5; 
+  const totalSavings = solarSavings + (totalKwh * 0.05 * 10); // Simulated peak shift savings
+  
+  const solarUtilization = totalKwh > 0 ? (solarKwh / totalKwh) * 100 : 0;
+  
+  const dynamicCostData = [
+    { name: 'Off-Peak Energy', value: Math.max(0, 70 - solarUtilization), color: 'rgba(255,255,255,0.4)' },
+    { name: 'Peak Energy', value: 30, color: 'var(--color-warning)' },
+    { name: 'Solar Offset', value: solarUtilization, color: 'var(--color-success)' },
+  ].map(item => ({...item, value: Number(item.value.toFixed(1))}));
+
   return (
     <div className="p-6 text-[var(--color-text-primary)] max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-end">
@@ -69,23 +109,25 @@ export default function ReportsPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="glass-card p-5 rounded-[var(--radius-md)] border-t-4 border-t-[var(--color-warning)]">
           <p className="text-sm font-medium text-[var(--color-text-secondary)]">Total Energy Cost</p>
-          <p className="text-2xl font-bold mt-1 font-mono">Rs. 1,842,500</p>
+          <p className="text-2xl font-bold mt-1 font-mono">Rs. {estimatedCost.toLocaleString(undefined, {maximumFractionDigits: 0})}</p>
         </div>
         <div className="glass-card p-5 rounded-[var(--radius-md)] border-t-4 border-t-[var(--color-success)] relative overflow-hidden">
           <div className="absolute right-0 top-0 bottom-0 w-16 bg-gradient-to-l from-[var(--color-success-soft)] to-transparent pointer-events-none opacity-50"></div>
           <p className="text-sm font-medium text-[var(--color-text-secondary)]">Total Savings</p>
           <div className="flex items-end gap-2 mt-1">
-            <p className="text-2xl font-bold font-mono text-[var(--color-success)]">Rs. 312,800</p>
-            <span className="text-sm font-bold text-[var(--color-success)] bg-[var(--color-success-soft)] px-1.5 rounded mb-1">(16.9%)</span>
+            <p className="text-2xl font-bold font-mono text-[var(--color-success)]">Rs. {totalSavings.toLocaleString(undefined, {maximumFractionDigits: 0})}</p>
+            <span className="text-sm font-bold text-[var(--color-success)] bg-[var(--color-success-soft)] px-1.5 rounded mb-1">
+              ({totalKwh > 0 ? ((totalSavings / (estimatedCost + totalSavings)) * 100).toFixed(1) : 0}%)
+            </span>
           </div>
         </div>
         <div className="glass-card p-5 rounded-[var(--radius-md)] border-t-4 border-t-[var(--color-warning)]">
           <p className="text-sm font-medium text-[var(--color-text-secondary)]">Average Peak Demand</p>
-          <p className="text-2xl font-bold mt-1 font-mono">178 kW</p>
+          <p className="text-2xl font-bold mt-1 font-mono">{peakKw.toFixed(1)} kW</p>
         </div>
         <div className="glass-card p-5 rounded-[var(--radius-md)] border-t-4 border-t-[var(--color-success)]">
           <p className="text-sm font-medium text-[var(--color-text-secondary)]">Average Solar Utilization</p>
-          <p className="text-2xl font-bold mt-1 font-mono text-[var(--color-success)]">64%</p>
+          <p className="text-2xl font-bold mt-1 font-mono text-[var(--color-success)]">{solarUtilization.toFixed(1)}%</p>
         </div>
       </div>
 
@@ -97,7 +139,7 @@ export default function ReportsPage() {
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={costData}
+                  data={dynamicCostData}
                   cx="50%"
                   cy="45%"
                   innerRadius={60}
@@ -107,7 +149,7 @@ export default function ReportsPage() {
                   stroke="rgba(255,255,255,0.5)"
                   strokeWidth={2}
                 >
-                  {costData.map((entry, index) => (
+                  {dynamicCostData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
@@ -126,7 +168,7 @@ export default function ReportsPage() {
           
           {/* Custom Legend */}
           <div className="mt-2 space-y-3">
-            {costData.map((item, i) => (
+            {dynamicCostData.map((item, i) => (
               <div key={i} className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="w-3 h-3 rounded-full border border-white/50" style={{ backgroundColor: item.color }}></span>

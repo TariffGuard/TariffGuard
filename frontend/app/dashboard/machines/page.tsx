@@ -1,27 +1,17 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { GlassPanel } from '@/components/ui/glass_panel';
 import { Button } from '@/components/ui/button';
 import { 
   Plus, Edit2, Settings, Server, CheckCircle2, 
-  Clock, AlertTriangle, Calendar as CalendarIcon, Info
+  Clock, AlertTriangle, Calendar as CalendarIcon, Info, Loader2, X
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, 
   Tooltip as RechartsTooltip, ResponsiveContainer, Cell
 } from 'recharts';
-
-const machineData = [
-  { id: 'M-01', name: 'Dyeing Machine', type: 'Dyeing', power: '45 kW', status: 'Running', shiftable: true, avail: '08:00—22:00' },
-  { id: 'M-02', name: 'Weaving Machine', type: 'Weaving', power: '32 kW', status: 'Running', shiftable: true, avail: '08:00—22:00' },
-  { id: 'M-03', name: 'Finishing Machine', type: 'Finishing', power: '28 kW', status: 'Idle', shiftable: true, avail: '08:00—22:00' },
-  { id: 'M-04', name: 'Spinning Machine', type: 'Spinning', power: '28 kW', status: 'Running', shiftable: false, avail: '08:00—20:00' },
-  { id: 'M-05', name: 'Packaging Machine', type: 'Packaging', power: '12 kW', status: 'Maintenance', shiftable: true, avail: '08:00—22:00' },
-  { id: 'M-06', name: 'Cutting Machine', type: 'Cutting', power: '18 kW', status: 'Running', shiftable: true, avail: '08:00—22:00' },
-  { id: 'M-07', name: 'Boiler', type: 'Heating', power: '55 kW', status: 'Running', shiftable: false, avail: '06:00—22:00' },
-  { id: 'M-08', name: 'Compressor', type: 'Air', power: '22 kW', status: 'Idle', shiftable: true, avail: '08:00—20:00' },
-];
+import { fetchApi } from '@/lib/api';
 
 const energyData = [
   { id: 'M-01', value: 850 },
@@ -35,7 +25,104 @@ const energyData = [
 ];
 
 export default function MachinesPage() {
-  const [selectedMachine, setSelectedMachine] = useState(machineData[0]);
+  const [machines, setMachines] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedMachine, setSelectedMachine] = useState<any>(null);
+  
+  // Modal states
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [message, setMessage] = useState<{type: 'success'|'error', text: string} | null>(null);
+  
+  const [formData, setFormData] = useState({
+    name: '',
+    machine_type: 'Dyeing',
+    power_kw: 100,
+    status: 'Running',
+    priority: 2,
+    shiftable: true,
+    available_from: '08:00',
+    available_to: '22:00'
+  });
+
+  const loadMachines = async () => {
+    try {
+      const data = await fetchApi('/api/machines/?factory_id=1');
+      const mappedData = data.map((m: any) => ({
+        id: `M-${String(m.id).padStart(2, '0')}`,
+        dbId: m.id,
+        name: m.name,
+        type: m.machine_type,
+        power: `${m.power_kw} kW`,
+        status: m.status || 'Running',
+        shiftable: m.shiftable,
+        avail: `${m.available_from}—${m.available_to}`,
+        minRunTime: `${m.min_run_minutes / 60} hrs`,
+        setupTime: `${m.setup_minutes} mins`,
+      }));
+      setMachines(mappedData);
+      if (mappedData.length > 0) {
+        // preserve selection if possible
+        setSelectedMachine((prev: any) => prev ? (mappedData.find((m: any) => m.dbId === prev.dbId) || mappedData[0]) : mappedData[0]);
+      }
+    } catch (error) {
+      console.error('Failed to fetch machines:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadMachines();
+  }, []);
+
+  const handleAddSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setMessage(null);
+    try {
+      await fetchApi('/api/machines/', {
+        method: 'POST',
+        body: JSON.stringify({
+          factory_id: 1,
+          name: formData.name,
+          machine_type: formData.machine_type,
+          power_kw: Number(formData.power_kw),
+          priority: Number(formData.priority),
+          shiftable: formData.shiftable,
+          available_from: formData.available_from,
+          available_to: formData.available_to,
+        })
+      });
+      setMessage({ type: 'success', text: 'Machine added successfully.' });
+      setIsAddModalOpen(false);
+      setFormData({
+        name: '', machine_type: 'Dyeing', power_kw: 100, status: 'Running', priority: 2, shiftable: true, available_from: '08:00', available_to: '22:00'
+      });
+      await loadMachines();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || 'Failed to add machine.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-[50vh] flex-col gap-4 items-center justify-center text-[var(--color-text-secondary)]">
+        <Loader2 className="h-8 w-8 animate-spin text-[var(--color-primary)]" />
+        <p>Loading machines...</p>
+      </div>
+    );
+  }
+
+  if (!machines.length || !selectedMachine) {
+    return (
+      <div className="flex h-[50vh] items-center justify-center text-[var(--color-text-secondary)]">
+        <p>No machines found.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 text-[var(--color-text-primary)] max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
@@ -45,6 +132,12 @@ export default function MachinesPage() {
           <p className="text-sm text-[var(--color-text-secondary)]">Manage your factory equipment and power profiles</p>
         </div>
       </div>
+
+      {message && (
+        <div className={cn("p-3 rounded text-sm font-medium", message.type === 'success' ? "bg-[var(--color-success-soft)] text-[var(--color-success)]" : "bg-red-500/20 text-red-500")}>
+          {message.text}
+        </div>
+      )}
 
       {/* Section 1: Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -95,11 +188,11 @@ export default function MachinesPage() {
               </div>
               <div className="flex justify-between items-center border-b border-[rgba(255,255,255,0.2)] pb-2">
                 <span className="text-sm text-[var(--color-text-secondary)]">Min Run Time</span>
-                <span className="text-sm font-mono text-[var(--color-text-muted)]">2 hrs</span>
+                <span className="text-sm font-mono text-[var(--color-text-muted)]">{selectedMachine.minRunTime}</span>
               </div>
               <div className="flex justify-between items-center border-b border-[rgba(255,255,255,0.2)] pb-2">
                 <span className="text-sm text-[var(--color-text-secondary)]">Setup Time</span>
-                <span className="text-sm font-mono text-[var(--color-text-muted)]">30 mins</span>
+                <span className="text-sm font-mono text-[var(--color-text-muted)]">{selectedMachine.setupTime}</span>
               </div>
               <div className="flex justify-between items-center pt-1">
                 <span className="text-sm text-[var(--color-text-secondary)]">Shiftable</span>
@@ -160,7 +253,10 @@ export default function MachinesPage() {
       <GlassPanel className="rounded-[var(--radius-lg)] overflow-hidden">
         <div className="p-5 border-b border-[rgba(255,255,255,0.4)] flex justify-between items-center bg-[rgba(255,255,255,0.2)]">
           <h3 className="font-semibold text-[var(--color-primary)]">All Machines</h3>
-          <Button className="bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] h-9 px-4 text-sm rounded-[var(--radius-sm)] border-none">
+          <Button 
+            onClick={() => setIsAddModalOpen(true)}
+            className="bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] h-9 px-4 text-sm rounded-[var(--radius-sm)] border-none"
+          >
             <Plus className="w-4 h-4 mr-2" /> Add Machine
           </Button>
         </div>
@@ -178,7 +274,7 @@ export default function MachinesPage() {
               </tr>
             </thead>
             <tbody>
-              {machineData.map((m, i) => (
+              {machines.map((m: any, i: number) => (
                 <tr 
                   key={m.id} 
                   className={cn(
@@ -250,6 +346,144 @@ export default function MachinesPage() {
           </p>
         </div>
       </GlassPanel>
+
+      {/* Add Machine Modal */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <GlassPanel className="w-full max-w-xl p-6 rounded-[var(--radius-lg)] shadow-2xl border border-[rgba(255,255,255,0.5)]">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-[var(--color-primary)] flex items-center gap-2">
+                <Server className="w-5 h-5" /> Add New Machine
+              </h3>
+              <button onClick={() => setIsAddModalOpen(false)} className="text-[var(--color-text-muted)] hover:text-[var(--color-primary)] transition-colors p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <form onSubmit={handleAddSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5 col-span-2">
+                  <label className="text-sm font-medium text-[var(--color-text-secondary)]">Machine Name</label>
+                  <input 
+                    type="text" 
+                    value={formData.name} 
+                    onChange={e => setFormData({...formData, name: e.target.value})} 
+                    className="w-full px-3 py-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] text-sm focus:outline-none focus:border-[var(--color-primary)]" 
+                    required 
+                    placeholder="e.g. Dyeing Unit 04"
+                  />
+                </div>
+                
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-[var(--color-text-secondary)]">Machine Type</label>
+                  <select 
+                    value={formData.machine_type} 
+                    onChange={e => setFormData({...formData, machine_type: e.target.value})}
+                    className="w-full px-3 py-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] text-sm focus:outline-none focus:border-[var(--color-primary)]"
+                  >
+                    <option value="Dyeing">Dyeing</option>
+                    <option value="Weaving">Weaving</option>
+                    <option value="Finishing">Finishing</option>
+                    <option value="Spinning">Spinning</option>
+                    <option value="Packaging">Packaging</option>
+                    <option value="Cutting">Cutting</option>
+                    <option value="Boiler">Boiler</option>
+                    <option value="Compressor">Compressor</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-[var(--color-text-secondary)]">Power Rating (kW)</label>
+                  <input 
+                    type="number" 
+                    value={formData.power_kw} 
+                    onChange={e => setFormData({...formData, power_kw: Number(e.target.value)})} 
+                    className="w-full px-3 py-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] text-sm font-mono focus:outline-none focus:border-[var(--color-primary)]" 
+                    required 
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-[var(--color-text-secondary)]">Status</label>
+                  <select 
+                    value={formData.status} 
+                    onChange={e => setFormData({...formData, status: e.target.value})}
+                    className="w-full px-3 py-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] text-sm focus:outline-none focus:border-[var(--color-primary)]"
+                  >
+                    <option value="Running">Running</option>
+                    <option value="Idle">Idle</option>
+                    <option value="Maintenance">Maintenance</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-[var(--color-text-secondary)]">Priority</label>
+                  <select 
+                    value={formData.priority} 
+                    onChange={e => setFormData({...formData, priority: Number(e.target.value)})}
+                    className="w-full px-3 py-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] text-sm focus:outline-none focus:border-[var(--color-primary)]"
+                  >
+                    <option value={1}>High (1)</option>
+                    <option value={2}>Medium (2)</option>
+                    <option value={3}>Low (3)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5 flex flex-col justify-end pb-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={formData.shiftable} 
+                      onChange={e => setFormData({...formData, shiftable: e.target.checked})} 
+                      className="w-4 h-4 rounded text-[var(--color-primary)] focus:ring-[var(--color-primary)] accent-[var(--color-primary)]" 
+                    />
+                    <span className="text-sm font-medium text-[var(--color-text-primary)]">Shiftable Load</span>
+                  </label>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-[var(--color-text-secondary)]">Available From</label>
+                  <input 
+                    type="time" 
+                    value={formData.available_from} 
+                    onChange={e => setFormData({...formData, available_from: e.target.value})} 
+                    className="w-full px-3 py-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] text-sm font-mono focus:outline-none focus:border-[var(--color-primary)]" 
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-[var(--color-text-secondary)]">Available To</label>
+                  <input 
+                    type="time" 
+                    value={formData.available_to} 
+                    onChange={e => setFormData({...formData, available_to: e.target.value})} 
+                    className="w-full px-3 py-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] text-sm font-mono focus:outline-none focus:border-[var(--color-primary)]" 
+                  />
+                </div>
+              </div>
+
+              <div className="mt-8 flex justify-end gap-3 pt-4 border-t border-[rgba(255,255,255,0.2)]">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => setIsAddModalOpen(false)}
+                  className="bg-transparent border-[rgba(255,255,255,0.6)] text-[var(--color-text-primary)] hover:bg-[rgba(255,255,255,0.2)] px-6"
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  type="submit" 
+                  disabled={isSubmitting}
+                  className="bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] px-6 rounded-[var(--radius-sm)] border-none"
+                >
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                  {isSubmitting ? 'Saving...' : 'Add Machine'}
+                </Button>
+              </div>
+            </form>
+          </GlassPanel>
+        </div>
+      )}
 
     </div>
   );

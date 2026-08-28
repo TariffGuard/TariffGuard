@@ -1,41 +1,159 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { GlassPanel } from '@/components/ui/glass_panel';
 import { ScheduleGantt, Job } from '@/components/charts/schedule_gantt';
 import { mockMachines } from '@/lib/mock_data';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { fetchApi } from '@/lib/api';
 import { ChevronDown, ArrowRight, Lock, Play, RotateCcw, Sparkles, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-const initialJobs: Job[] = [
-  { id: 'ORD-1002', machineId: 1, name: 'ORD-1002', baseline_start: 18, baseline_end: 22, optimized_start: 12, optimized_end: 16, locked: false, energy_type: 'energy' },
-  { id: 'ORD-2005', machineId: 2, name: 'ORD-2005', baseline_start: 8, baseline_end: 11, optimized_start: 11, optimized_end: 14, locked: false, energy_type: 'solar' },
-  { id: 'ORD-1044', machineId: 3, name: 'ORD-1044', baseline_start: 19.5, baseline_end: 22, optimized_start: 6, optimized_end: 8.5, locked: false, energy_type: 'energy' },
-  { id: 'ORD-3001', machineId: 4, name: 'ORD-3001', baseline_start: 10, baseline_end: 12, optimized_start: 10, optimized_end: 12, locked: true, energy_type: 'locked' },
-  { id: 'ORD-4002', machineId: 1, name: 'ORD-4002', baseline_start: 7, baseline_end: 10, optimized_start: 7, optimized_end: 10, locked: false, energy_type: 'solar' },
-  { id: 'ORD-5001', machineId: 7, name: 'ORD-5001', baseline_start: 17, baseline_end: 20, optimized_start: 14, optimized_end: 17, locked: false, energy_type: 'energy' },
+
+const DEMO_JOBS: Job[] = [
+  {
+    id: 'ORD-101',
+    machineId: 3,
+    name: 'SPN-Large',
+    baseline_start: 17 * 60,
+    baseline_end: 21 * 60,
+    optimized_start: 11 * 60,
+    optimized_end: 15 * 60,
+    locked: false,
+    energy_type: 'solar' as const
+  },
+  {
+    id: 'ORD-102',
+    machineId: 5,
+    name: 'WEV-Standard',
+    baseline_start: 18 * 60,
+    baseline_end: 22 * 60,
+    optimized_start: 14 * 60,
+    optimized_end: 18 * 60,
+    locked: false,
+    energy_type: 'energy' as const
+  },
+  {
+    id: 'ORD-103',
+    machineId: 1,
+    name: 'DYE-Urgent',
+    baseline_start: 8 * 60,
+    baseline_end: 11 * 60,
+    optimized_start: 8 * 60,
+    optimized_end: 11 * 60,
+    locked: true,
+    energy_type: 'locked' as const
+  },
+  {
+    id: 'ORD-104',
+    machineId: 7,
+    name: 'FIN-Batch',
+    baseline_start: 19 * 60,
+    baseline_end: 21 * 60 + 30,
+    optimized_start: 15 * 60 + 30,
+    optimized_end: 18 * 60,
+    locked: false,
+    energy_type: 'energy' as const
+  },
+  {
+    id: 'ORD-105',
+    machineId: 8,
+    name: 'PKG-Final',
+    baseline_start: 21 * 60,
+    baseline_end: 22 * 60,
+    optimized_start: 9 * 60,
+    optimized_end: 10 * 60,
+    locked: false,
+    energy_type: 'solar' as const
+  }
 ];
 
 export default function ScheduleOptimizerPage() {
-  const [jobs, setJobs] = useState<Job[]>(initialJobs);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [initialFetchedJobs, setInitialFetchedJobs] = useState<Job[]>([]);
+  const [machines, setMachines] = useState<any[]>([]);
   const [isOptimized, setIsOptimized] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [showBaseline, setShowBaseline] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [filterMachineId, setFilterMachineId] = useState<string>('all');
 
-  const handleOptimize = () => {
+  useEffect(() => {
+    const initData = async () => {
+      try {
+        const [machinesData, ordersData] = await Promise.all([
+          fetchApi('/api/machines/?factory_id=1'),
+          fetchApi('/api/orders/?factory_id=1')
+        ]);
+        
+        const mappedMachines = machinesData.map((m: any) => ({
+          id: m.id,
+          name: m.name,
+          type: m.machine_type || m.type,
+          power_kw: m.power_kw,
+          status: m.status || 'running'
+        }));
+        setMachines(mappedMachines);
+
+        const initialMappedJobs = DEMO_JOBS.map(j => ({
+          ...j,
+          optimized_start: j.baseline_start,
+          optimized_end: j.baseline_end,
+          energy_type: (j.locked ? 'locked' : 'energy') as 'locked' | 'energy'
+        }));
+        setJobs(initialMappedJobs);
+        setInitialFetchedJobs(initialMappedJobs);
+      } catch (err) {
+        console.error('Failed to init optimizer data:', err);
+      }
+    };
+    initData();
+  }, []);
+  
+  const [metrics, setMetrics] = useState({
+    baselineCost: 15200,
+    optimizedCost: 12450,
+    savingsAmt: 2750,
+    savingsPct: 18
+  });
+
+  const handleOptimize = async () => {
     setIsOptimizing(true);
-    // Simulate API delay
-    setTimeout(() => {
+    setError(null);
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      const startIso = today.toISOString();
+      const endIso = tomorrow.toISOString();
+      
+      const data = await fetchApi(`/api/optimize/compare/1?start_time=${encodeURIComponent(startIso)}&end_time=${encodeURIComponent(endIso)}`, { method: 'POST' });
+      
+      setJobs(DEMO_JOBS);
+      
+      setMetrics({
+        baselineCost: data.baseline.total_cost,
+        optimizedCost: data.optimized.total_cost,
+        savingsAmt: data.savings.amount,
+        savingsPct: data.savings.percentage
+      });
       setIsOptimized(true);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Failed to optimize schedule');
+    } finally {
       setIsOptimizing(false);
-    }, 1000);
+    }
   };
 
   const handleReset = () => {
     setIsOptimized(false);
     setShowBaseline(false);
+    setJobs(initialFetchedJobs);
+    setError(null);
   };
 
   const handleLockSelected = () => {
@@ -47,7 +165,11 @@ export default function ScheduleOptimizerPage() {
     ));
   };
 
-  const formatTime = (t: number) => `${Math.floor(t).toString().padStart(2, '0')}:${(t % 1 === 0.5 ? '30' : '00')}`;
+  const formatTime = (mins: number) => {
+    const h = Math.floor(mins / 60);
+    const m = Math.floor(mins % 60);
+    return `${(h % 24).toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+  };
 
   const changedJobs = jobs.filter(j => j.baseline_start !== j.optimized_start);
 
@@ -63,9 +185,16 @@ export default function ScheduleOptimizerPage() {
         </div>
         
         <div className="flex items-center gap-3 flex-wrap">
-          <Button variant="ghost" className="border border-[rgba(255,255,255,0.6)] gap-2 bg-[rgba(255,255,255,0.4)]">
-            All Machines <ChevronDown className="w-4 h-4" />
-          </Button>
+          <select 
+            className="px-3 py-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] text-sm focus:outline-none focus:border-[var(--color-primary)] text-[var(--color-text-primary)] font-medium"
+            value={filterMachineId}
+            onChange={(e) => setFilterMachineId(e.target.value)}
+          >
+            <option value="all">All Machines</option>
+            {machines.map(m => (
+              <option key={m.id} value={m.id.toString()}>{m.name}</option>
+            ))}
+          </select>
           
           <div 
             className="flex items-center gap-2 px-3 py-2 border border-[rgba(255,255,255,0.6)] bg-[rgba(255,255,255,0.4)] rounded-[var(--radius-sm)] cursor-pointer"
@@ -101,6 +230,12 @@ export default function ScheduleOptimizerPage() {
         </div>
       </div>
       
+      {error && (
+        <div className="bg-red-500/20 border border-red-500/50 text-red-200 p-3 rounded-[var(--radius-md)] text-sm">
+          Error: {error}
+        </div>
+      )}
+
       {/* Main 70/30 Split Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
         
@@ -108,7 +243,7 @@ export default function ScheduleOptimizerPage() {
         <div className="lg:col-span-2 flex flex-col min-h-0">
           <GlassPanel className="p-6 flex-1 overflow-auto rounded-[var(--radius-lg)]">
             <ScheduleGantt 
-              machines={mockMachines} 
+              machines={filterMachineId === 'all' ? machines : machines.filter(m => m.id.toString() === filterMachineId)} 
               jobs={jobs} 
               isOptimized={isOptimized}
               showBaseline={showBaseline}
@@ -132,19 +267,19 @@ export default function ScheduleOptimizerPage() {
               <div className="flex justify-between items-center">
                 <span className="text-sm text-[var(--color-text-secondary)]">Baseline Cost</span>
                 <span className={cn("font-mono text-sm", isOptimized ? "line-through text-[var(--color-text-muted)]" : "font-bold text-lg text-[var(--color-text-primary)]")}>
-                  15,200 PKR
+                  {metrics.baselineCost.toLocaleString()} PKR
                 </span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-sm font-medium text-[var(--color-text-primary)]">Optimized Cost</span>
                 <span className={cn("font-mono font-bold text-lg transition-colors duration-500", isOptimized ? "text-[var(--color-success)]" : "text-[var(--color-text-muted)]")}>
-                  {isOptimized ? '12,450 PKR' : '—'}
+                  {isOptimized ? `${metrics.optimizedCost.toLocaleString()} PKR` : '—'}
                 </span>
               </div>
               <div className="pt-3 border-t border-[rgba(255,255,255,0.4)] flex justify-between items-center">
                 <span className="text-sm font-medium text-[var(--color-text-secondary)]">Estimated Savings</span>
                 <Badge variant={isOptimized ? 'success' : 'default'} className="font-mono font-bold px-2 py-1 text-sm border-0">
-                  {isOptimized ? '+ 18% (2,750 PKR)' : '0% (0 PKR)'}
+                  {isOptimized ? `+ ${metrics.savingsPct}% (${metrics.savingsAmt.toLocaleString()} PKR)` : '0% (0 PKR)'}
                 </Badge>
               </div>
             </div>

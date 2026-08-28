@@ -1,12 +1,14 @@
 'use client';
+import { useState, useEffect } from 'react';
 import { GlassPanel } from '@/components/ui/glass_panel';
 import { Button } from '@/components/ui/button';
 import { 
   AlertTriangle, Filter, Search, CheckCircle2, 
-  Clock, ArrowRight, Zap, Target, TrendingUp
+  Clock, ArrowRight, Zap, Target, TrendingUp, Loader2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceDot } from 'recharts';
+import { fetchApi } from '@/lib/api';
 
 const energyData = [
   { day: 'Wed 07', value: 140 },
@@ -20,8 +22,101 @@ const energyData = [
 ];
 
 export default function AlertsPage() {
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [stats, setStats] = useState({ total: 0, critical: 0, medium: 0, resolved: 0 });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [markingAll, setMarkingAll] = useState(false);
+
+  const loadData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [alertsData, statsData] = await Promise.all([
+        fetchApi('/api/alerts/unresolved/1'),
+        fetchApi('/api/alerts/stats/1')
+      ]);
+      setAlerts(alertsData);
+      setStats({
+        total: statsData.total || 0,
+        critical: statsData.critical || 0,
+        medium: (statsData.unresolved || 0) - (statsData.critical || 0),
+        resolved: statsData.resolved || 0
+      });
+    } catch (err: any) {
+      setError(err.message || 'Failed to load alerts');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const handleDismiss = async (id: number) => {
+    try {
+      await fetchApi(`/api/alerts/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ is_resolved: true })
+      });
+      loadData();
+    } catch (err: any) {
+      setError(err.message || 'Failed to dismiss alert');
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    if (alerts.length === 0) return;
+    setMarkingAll(true);
+    try {
+      await Promise.all(
+        alerts.map(a => 
+          fetchApi(`/api/alerts/${a.id}`, {
+            method: 'PUT',
+            body: JSON.stringify({ is_resolved: true })
+          })
+        )
+      );
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || 'Failed to mark all as read');
+    } finally {
+      setMarkingAll(false);
+    }
+  };
+
+  const getSeverityConfig = (severity: string, type: string) => {
+    const isHigh = severity === 'critical';
+    let icon = AlertTriangle;
+    if (type === 'peak_demand') icon = Target;
+    else if (type === 'low_solar') icon = Zap;
+    else if (type === 'deadline') icon = Clock;
+    
+    return {
+      severityText: isHigh ? 'HIGH' : 'MEDIUM',
+      color: isHigh ? 'var(--color-warning)' : 'var(--color-energy)',
+      bgColor: isHigh ? 'var(--color-warning-soft)' : 'var(--color-energy-soft)',
+      Icon: icon
+    };
+  };
+
+  if (loading && alerts.length === 0) {
+    return (
+      <div className="flex h-[50vh] flex-col gap-4 items-center justify-center text-[var(--color-text-secondary)]">
+        <Loader2 className="h-8 w-8 animate-spin text-[var(--color-primary)]" />
+        <p>Loading alerts...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 text-[var(--color-text-primary)] max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+      {error && (
+        <div className="bg-red-500/20 border border-red-500/50 text-red-200 p-3 rounded-[var(--radius-md)] text-sm mb-4">
+          Error: {error}
+        </div>
+      )}
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-2xl font-bold text-[var(--color-primary)]">Alerts & Anomalies</h1>
@@ -58,8 +153,13 @@ export default function AlertsPage() {
             <option>All time</option>
           </select>
         </div>
-        <Button variant="outline" className="border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary-light)] h-9 px-4">
-          <CheckCircle2 className="w-4 h-4 mr-2" />
+        <Button 
+          variant="outline" 
+          className="border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary-light)] h-9 px-4 disabled:opacity-50"
+          onClick={handleMarkAllRead}
+          disabled={markingAll || alerts.length === 0}
+        >
+          {markingAll ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
           Mark All Read
         </Button>
       </GlassPanel>
@@ -67,10 +167,10 @@ export default function AlertsPage() {
       {/* Section 2: Alert Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { title: 'Total Alerts', value: '12', border: 'border-t-[var(--color-primary)]' },
-          { title: 'High Severity', value: '3', border: 'border-t-[var(--color-warning)]' },
-          { title: 'Medium Severity', value: '5', border: 'border-t-[var(--color-energy)]' },
-          { title: 'Resolved Today', value: '7', border: 'border-t-[var(--color-success)]' }
+          { title: 'Total Alerts', value: stats.total, border: 'border-t-[var(--color-primary)]' },
+          { title: 'High Severity', value: stats.critical, border: 'border-t-[var(--color-warning)]' },
+          { title: 'Medium Severity', value: stats.medium, border: 'border-t-[var(--color-energy)]' },
+          { title: 'Resolved', value: stats.resolved, border: 'border-t-[var(--color-success)]' }
         ].map((card, i) => (
           <div key={i} className={cn("glass-card p-5 rounded-[var(--radius-md)] border-t-4", card.border)}>
             <p className="text-sm font-medium text-[var(--color-text-secondary)]">{card.title}</p>
@@ -84,81 +184,57 @@ export default function AlertsPage() {
         <div className="p-5 border-b border-[rgba(255,255,255,0.4)] flex justify-between items-center bg-[rgba(255,255,255,0.2)]">
           <div className="flex items-center gap-3">
             <h3 className="font-semibold text-[var(--color-primary)]">Active Alerts</h3>
-            <span className="bg-[var(--color-warning-soft)] text-[var(--color-warning)] text-xs font-semibold px-2 py-0.5 rounded-full">3 unread</span>
+            {alerts.length > 0 && (
+              <span className="bg-[var(--color-warning-soft)] text-[var(--color-warning)] text-xs font-semibold px-2 py-0.5 rounded-full">
+                {alerts.length} unread
+              </span>
+            )}
           </div>
         </div>
         <div className="divide-y divide-[rgba(255,255,255,0.3)]">
-          {[
-            { 
-              severity: 'HIGH', 
-              color: 'var(--color-warning)', 
-              bgColor: 'var(--color-warning-soft)', 
-              icon: AlertTriangle,
-              title: 'Demand spike predicted at 18:30',
-              desc: 'Predicted grid demand will reach 196 kW, approaching the 200 kW threshold.',
-              time: '18:15',
-              source: 'AI Optimizer'
-            },
-            { 
-              severity: 'HIGH', 
-              color: 'var(--color-warning)', 
-              bgColor: 'var(--color-warning-soft)', 
-              icon: Target,
-              title: 'Peak demand threshold exceeded',
-              desc: 'Actual grid draw reached 212 kW at 18:42 during peak tariff period.',
-              time: '18:42',
-              source: 'Grid Monitor'
-            },
-            { 
-              severity: 'MEDIUM', 
-              color: 'var(--color-energy)', 
-              bgColor: 'var(--color-energy-soft)', 
-              icon: Clock,
-              title: 'Dyeing Batch 03 delayed',
-              desc: 'Running 25 minutes behind schedule. May overflow into peak tariff period.',
-              time: '16:20',
-              source: 'Production Sync'
-            },
-            { 
-              severity: 'MEDIUM', 
-              color: 'var(--color-energy)', 
-              bgColor: 'var(--color-energy-soft)', 
-              icon: Zap,
-              title: 'Solar output lower than forecast',
-              desc: 'Actual output 18% below forecast. Grid draw increased to compensate.',
-              time: '14:00',
-              source: 'Solar Monitor'
-            }
-          ].map((alert, i) => (
-            <div key={i} className="p-5 flex gap-4 hover:bg-[rgba(255,255,255,0.4)] transition-colors" style={{ borderLeft: `3px solid ${alert.color}` }}>
-              <div className="shrink-0 mt-1">
-                <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: alert.bgColor, color: alert.color }}>
-                  <alert.icon className="w-4 h-4" />
-                </div>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <h4 className="font-semibold text-[var(--color-text-primary)]">{alert.title}</h4>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider" style={{ backgroundColor: alert.bgColor, color: alert.color }}>
-                    {alert.severity}
-                  </span>
-                </div>
-                <p className="text-sm text-[var(--color-text-secondary)] mb-2">{alert.desc}</p>
-                <div className="flex items-center gap-4 text-xs font-mono text-[var(--color-text-muted)]">
-                  <span>{alert.time}</span>
-                  <span>•</span>
-                  <span>{alert.source}</span>
-                </div>
-              </div>
-              <div className="shrink-0 flex flex-col items-end justify-between gap-2">
-                <span className="text-xs font-mono text-[var(--color-text-muted)]">Today</span>
-                <div className="flex items-center gap-3">
-                  <button className="text-xs font-medium text-[var(--color-primary)] hover:underline">View Schedule</button>
-                  <button className="text-xs font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]">Dismiss</button>
-                </div>
-              </div>
+          {alerts.length === 0 ? (
+            <div className="p-8 text-center text-[var(--color-text-muted)] text-sm italic">
+              No active alerts at this time.
             </div>
-          ))}
+          ) : alerts.map((alert) => {
+              const { severityText, color, bgColor, Icon } = getSeverityConfig(alert.severity, alert.type);
+              const timeString = new Date(alert.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              return (
+                <div key={alert.id} className="p-5 flex gap-4 hover:bg-[rgba(255,255,255,0.4)] transition-colors" style={{ borderLeft: `3px solid ${color}` }}>
+                  <div className="shrink-0 mt-1">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: bgColor, color: color }}>
+                      <Icon className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4 className="font-semibold text-[var(--color-text-primary)]">{alert.message || alert.type}</h4>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider" style={{ backgroundColor: bgColor, color: color }}>
+                        {severityText}
+                      </span>
+                    </div>
+                    <p className="text-sm text-[var(--color-text-secondary)] mb-2">Value: {alert.value} (Threshold: {alert.threshold})</p>
+                    <div className="flex items-center gap-4 text-xs font-mono text-[var(--color-text-muted)]">
+                      <span>{timeString}</span>
+                      <span>•</span>
+                      <span>{alert.type === 'low_solar' ? 'Solar Monitor' : (alert.type === 'deadline' ? 'Production Sync' : 'Grid Monitor')}</span>
+                    </div>
+                  </div>
+                  <div className="shrink-0 flex flex-col items-end justify-between gap-2">
+                    <span className="text-xs font-mono text-[var(--color-text-muted)]">Today</span>
+                    <div className="flex items-center gap-3">
+                      <button className="text-xs font-medium text-[var(--color-primary)] hover:underline">View Schedule</button>
+                      <button 
+                        onClick={() => handleDismiss(alert.id)}
+                        className="text-xs font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
         </div>
       </GlassPanel>
 

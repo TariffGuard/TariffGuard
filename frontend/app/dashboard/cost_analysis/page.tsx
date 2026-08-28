@@ -4,8 +4,10 @@ import {
   BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, 
   Tooltip as RechartsTooltip, ResponsiveContainer, Legend
 } from 'recharts';
-import { Zap, Activity, AlertTriangle } from 'lucide-react';
+import { Zap, Activity, AlertTriangle, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useState, useEffect } from 'react';
+import { fetchApi } from '@/lib/api';
 
 const comparisonData = [
   { day: 'Mon', baseline: 125000, optimized: 105875, savings: '-15.3%' },
@@ -47,6 +49,60 @@ const renderCustomBarLabel = (props: any) => {
 };
 
 export default function CostAnalysisPage() {
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<any>(null);
+  const [optData, setOptData] = useState<any>(null);
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [statsData, factoryData, optCompare] = await Promise.all([
+          fetchApi('/api/meter-readings/stats/1'),
+          fetchApi('/api/dashboard/factory/1').catch(() => null),
+          fetchApi('/api/optimize/compare/1', { method: 'POST' }).catch(() => null)
+        ]);
+        setStats(statsData);
+        setOptData(optCompare);
+        console.warn('Cost Analysis: API does not provide 7-day daily breakdown for comparison and peak/off-peak. Using mock timeseries array fallbacks.');
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex h-[50vh] flex-col gap-4 items-center justify-center text-[var(--color-text-secondary)]">
+        <Loader2 className="h-8 w-8 animate-spin text-[var(--color-primary)]" />
+        <p>Loading cost analysis...</p>
+      </div>
+    );
+  }
+
+  // Derive Cost Drivers from energy stats
+  const totalKwh = stats?.total_kwh || 1;
+  const solarKwh = stats?.total_solar_kwh || 0;
+  const solarPct = (solarKwh / totalKwh) * 100;
+  
+  const costDrivers = [
+    { label: 'Peak-hour consumption', percent: 31, color: 'bg-[var(--color-warning)]' },
+    { label: 'Fixed charges', percent: 28, color: 'bg-[rgba(150,150,150,0.5)]' },
+    { label: 'Off-peak consumption', percent: Math.max(0, Math.round(100 - 31 - 28 - 12 - 7 - solarPct)), color: 'bg-[rgba(200,200,200,0.8)]' },
+    { label: 'Fuel adjustment', percent: 12, color: 'bg-[var(--color-energy)]' },
+    { label: 'Power factor penalty', percent: 7, color: 'bg-red-500' },
+  ];
+  if (solarPct > 0) {
+    costDrivers.push({ label: 'Solar Offset (Savings)', percent: Math.round(solarPct), color: 'bg-[var(--color-success)]' });
+  }
+  costDrivers.sort((a, b) => b.percent - a.percent);
+
+  // Derive Peak vs Off-Peak Data (Fallback to mock, but scale if we want)
+  const displayPeakOffPeak = peakOffPeakData;
+  const displayComparison = comparisonData;
+
   return (
     <div className="p-6 text-[var(--color-text-primary)] max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-end">
@@ -61,7 +117,7 @@ export default function CostAnalysisPage() {
         <h3 className="font-semibold text-[var(--color-primary)] mb-6">Cost Comparison (Last 7 Days)</h3>
         <div className="flex-1 w-full min-h-0">
           <ResponsiveContainer width="100%" height="100%">
-            <RechartsBarChart data={comparisonData} margin={{ top: 20, right: 0, left: 10, bottom: 0 }}>
+            <RechartsBarChart data={displayComparison} margin={{ top: 20, right: 0, left: 10, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.4)" />
               <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--color-text-muted)', fontFamily: 'monospace' }} dy={10} />
               <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--color-text-muted)', fontFamily: 'monospace' }} tickFormatter={(value) => `Rs.${value/1000}k`} />
@@ -86,7 +142,7 @@ export default function CostAnalysisPage() {
           <h3 className="font-semibold text-[var(--color-primary)] mb-6">Peak vs Off-Peak Consumption</h3>
           <div className="flex-1 w-full min-h-0">
             <ResponsiveContainer width="100%" height="100%">
-              <RechartsBarChart data={peakOffPeakData} margin={{ top: 10, right: 0, left: 10, bottom: 0 }}>
+              <RechartsBarChart data={displayPeakOffPeak} margin={{ top: 10, right: 0, left: 10, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.4)" />
                 <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--color-text-muted)', fontFamily: 'monospace' }} dy={10} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--color-text-muted)', fontFamily: 'monospace' }} tickFormatter={(value) => `Rs.${value/1000}k`} />
@@ -106,14 +162,8 @@ export default function CostAnalysisPage() {
         {/* Right: Cost Drivers */}
         <GlassPanel className="p-6 rounded-[var(--radius-lg)] h-[350px] flex flex-col">
           <h3 className="font-semibold text-[var(--color-primary)] mb-6">Cost Drivers</h3>
-          <div className="flex-1 flex flex-col justify-center space-y-5">
-            {[
-              { label: 'Peak-hour consumption', percent: 31, color: 'bg-[var(--color-warning)]' },
-              { label: 'Fixed charges', percent: 28, color: 'bg-[rgba(150,150,150,0.5)]' },
-              { label: 'Off-peak consumption', percent: 22, color: 'bg-[rgba(200,200,200,0.8)]' },
-              { label: 'Fuel adjustment', percent: 12, color: 'bg-[var(--color-energy)]' },
-              { label: 'Power factor penalty', percent: 7, color: 'bg-red-500' },
-            ].map((item, i) => (
+          <div className="flex-1 flex flex-col justify-center space-y-4">
+            {costDrivers.map((item, i) => (
               <div key={i}>
                 <div className="flex justify-between items-center mb-1.5">
                   <span className="text-sm font-medium text-[var(--color-text-secondary)]">{item.label}</span>

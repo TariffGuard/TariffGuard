@@ -7,6 +7,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
 import { fetchApi } from '@/lib/api';
+import { useAuth } from '@/context/auth_context';
 import { 
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip,
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Legend
@@ -30,23 +31,78 @@ const savingsTrendData = [
 ];
 
 export default function ReportsPage() {
+  const { role } = useAuth();
+  const isSupervisor = role === 'supervisor' || role === 'Supervisor';
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const loadStats = async () => {
+    try {
+      const data = await fetchApi('/api/meter-readings/stats/1');
+      setStats(data);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load report stats');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadStats = async () => {
-      try {
-        const data = await fetchApi('/api/meter-readings/stats/1');
-        setStats(data);
-      } catch (err: any) {
-        setError(err.message || 'Failed to load report stats');
-      } finally {
-        setLoading(false);
-      }
-    };
     loadStats();
   }, []);
+
+  const handleGenerateReport = async () => {
+    setIsGenerating(true);
+    setError(null);
+    try {
+      // Fetch both endpoints as requested
+      const [statsData, factoryData] = await Promise.all([
+        fetchApi('/api/meter-readings/stats/1'),
+        fetchApi('/api/dashboard/factory/1')
+      ]);
+      setStats(statsData);
+      // We could use factoryData here if we need to display it
+    } catch (err: any) {
+      setError(err.message || 'Failed to generate report');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleExportCsv = () => {
+    try {
+      const totalKwh = stats?.total_kwh || 0;
+      const solarKwh = stats?.total_solar_kwh || 0;
+      const peakKw = stats?.peak_kw || 0;
+      const estimatedCost = totalKwh * 28.5; 
+      const solarSavings = solarKwh * 28.5; 
+      const totalSavings = solarSavings + (totalKwh * 0.05 * 10);
+      const solarUtilization = totalKwh > 0 ? (solarKwh / totalKwh) * 100 : 0;
+
+      const headers = ['Date Range', 'Total Energy Cost (PKR)', 'Total Savings (PKR)', 'Average Peak Demand (kW)', 'Average Solar Utilization (%)'];
+      const row = ['01 Aug 2026 - 14 Aug 2026', estimatedCost.toFixed(2), totalSavings.toFixed(2), peakKw.toFixed(2), solarUtilization.toFixed(2)];
+      
+      const csvContent = "data:text/csv;charset=utf-8," 
+        + headers.join(",") + "\n"
+        + row.join(",");
+
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", "TariffGuard_Report.csv");
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err: any) {
+      setError('Failed to export CSV');
+    }
+  };
+
+  const handleDownloadPdf = () => {
+    window.print();
+  };
 
   if (loading && !stats) {
     return (
@@ -82,6 +138,12 @@ export default function ReportsPage() {
           <p className="text-sm text-[var(--color-text-secondary)]">Daily and weekly energy savings summaries</p>
         </div>
       </div>
+      
+      {error && (
+        <div className="bg-red-500/20 border border-red-500/50 text-red-200 p-3 rounded-[var(--radius-md)] text-sm font-medium">
+          {error}
+        </div>
+      )}
 
       {/* Section 1: Report Period Selector */}
       <GlassPanel className="p-4 rounded-[var(--radius-lg)] flex flex-wrap gap-4 items-center justify-between">
@@ -91,14 +153,38 @@ export default function ReportsPage() {
             <span className="text-sm font-medium">01 Aug 2026 — 14 Aug 2026</span>
             <ChevronDown className="w-4 h-4 text-[var(--color-text-muted)] ml-2" />
           </div>
-          <Button variant="primary" className="h-9 px-6 text-sm">Generate Report</Button>
+          <Button 
+            variant="primary" 
+            className="h-9 px-6 text-sm flex items-center transition-colors"
+            onClick={handleGenerateReport}
+            disabled={isGenerating}
+          >
+            {isGenerating && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+            {isGenerating ? 'Generating...' : 'Generate Report'}
+          </Button>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" className="border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary-light)] h-9 px-4 text-sm bg-transparent">
+          <Button 
+            variant="outline" 
+            className={cn("h-9 px-4 text-sm bg-transparent transition-colors",
+              isSupervisor ? "opacity-50 cursor-not-allowed border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-transparent" : "border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary-light)]"
+            )}
+            onClick={handleExportCsv}
+            disabled={isSupervisor}
+            title={isSupervisor ? "You don't have permission to export data" : undefined}
+          >
             <Download className="w-4 h-4 mr-2" />
             Export CSV
           </Button>
-          <Button variant="outline" className="border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary-light)] h-9 px-4 text-sm bg-transparent">
+          <Button 
+            variant="outline" 
+            className={cn("h-9 px-4 text-sm bg-transparent transition-colors",
+              isSupervisor ? "opacity-50 cursor-not-allowed border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-transparent" : "border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary-light)]"
+            )}
+            onClick={handleDownloadPdf}
+            disabled={isSupervisor}
+            title={isSupervisor ? "You don't have permission to export data" : undefined}
+          >
             <FileText className="w-4 h-4 mr-2" />
             Download PDF
           </Button>
@@ -131,11 +217,11 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 print:block print:w-full">
         {/* Section 3: Cost Breakdown */}
-        <GlassPanel className="p-6 rounded-[var(--radius-lg)] flex flex-col h-[400px]">
+        <GlassPanel className="p-6 rounded-[var(--radius-lg)] flex flex-col h-[400px] print:h-auto print:mb-6">
           <h3 className="font-semibold text-[var(--color-primary)] mb-6">Cost Breakdown</h3>
-          <div className="flex-1 w-full min-h-0 relative">
+          <div className="flex-1 w-full min-h-0 relative print:h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
@@ -183,7 +269,7 @@ export default function ReportsPage() {
         </GlassPanel>
 
         {/* Section 4: Savings Trend */}
-        <GlassPanel className="p-6 rounded-[var(--radius-lg)] lg:col-span-2 flex flex-col h-[400px]">
+        <GlassPanel className="p-6 rounded-[var(--radius-lg)] lg:col-span-2 flex flex-col h-[400px] print:h-auto">
           <div className="flex justify-between items-center mb-6">
             <h3 className="font-semibold text-[var(--color-primary)]">Savings Trend</h3>
             <div className="flex gap-4 text-xs font-medium">
@@ -195,7 +281,7 @@ export default function ReportsPage() {
               </div>
             </div>
           </div>
-          <div className="flex-1 w-full min-h-0">
+          <div className="flex-1 w-full min-h-0 print:h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={savingsTrendData} margin={{ top: 20, right: 0, left: 10, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.4)" />

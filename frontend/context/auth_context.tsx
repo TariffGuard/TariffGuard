@@ -2,7 +2,7 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { fetchApi } from '@/lib/api';
 
-type Role = 'Owner' | 'Manager' | 'Supervisor' | null;
+type Role = 'Owner' | 'Manager' | 'Supervisor' | 'owner' | 'manager' | 'supervisor' | null;
 
 interface AuthContextType {
   role: Role;
@@ -52,7 +52,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const demoLogin = (selectedRole: Role) => {
-    const mockUser = { id: 999, username: 'demo_user', role: selectedRole };
+    let username = 'demo_user';
+    if (selectedRole === 'Owner' || selectedRole === 'owner') username = 'Demo Owner';
+    if (selectedRole === 'Manager' || selectedRole === 'manager') username = 'Demo Manager';
+    if (selectedRole === 'Supervisor' || selectedRole === 'supervisor') username = 'Demo Supervisor';
+
+    const mockUser = { id: 999, username, role: selectedRole, factory_id: 1, email: 'demo@tariffguard.com' };
     localStorage.setItem('token', 'fake_demo_token');
     localStorage.setItem('user', JSON.stringify(mockUser));
     setUser(mockUser);

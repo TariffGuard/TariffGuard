@@ -5,8 +5,10 @@ import { Plus, Edit2, Loader2, X, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
 import { fetchApi } from '@/lib/api';
+import { useAuth } from '@/context/auth_context';
 
 export default function TariffCalendarPage() {
+  const { role } = useAuth();
   const currentHour = new Date().getHours() + new Date().getMinutes() / 60;
   const [tariffs, setTariffs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -247,14 +249,20 @@ export default function TariffCalendarPage() {
       <GlassPanel className="p-6 rounded-[var(--radius-lg)]">
         <div className="flex justify-between items-center mb-6">
           <h3 className="font-semibold text-[var(--color-primary)]">Tariff Configuration</h3>
-          <Button 
-            variant="outline" 
-            className="border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary-light)] h-9 px-4"
-            onClick={handleAdd}
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Add Period
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="outline" 
+              disabled={role === 'supervisor' || role === 'Supervisor'}
+              className={cn("border-[var(--color-primary)] text-[var(--color-primary)] h-9 px-4 transition-colors", 
+                (role === 'supervisor' || role === 'Supervisor') ? "opacity-50 cursor-not-allowed hover:bg-transparent" : "hover:bg-[var(--color-primary-light)]"
+              )}
+              title={(role === 'supervisor' || role === 'Supervisor') ? "You don't have permission to add periods" : undefined}
+              onClick={handleAdd}
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add Period
+            </Button>
+          </div>
         </div>
         
         <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[rgba(255,255,255,0.4)] mb-4">
@@ -285,13 +293,17 @@ export default function TariffCalendarPage() {
                     <td className="p-3 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button 
-                          className="text-[var(--color-text-muted)] hover:text-[var(--color-primary)] transition-colors p-1"
+                          className={cn("transition-colors p-1", (role === 'supervisor' || role === 'Supervisor') ? "opacity-50 cursor-not-allowed text-[var(--color-text-muted)]" : "text-[var(--color-text-muted)] hover:text-[var(--color-primary)]")}
+                          disabled={role === 'supervisor' || role === 'Supervisor'}
+                          title={(role === 'supervisor' || role === 'Supervisor') ? "You don't have permission to edit" : undefined}
                           onClick={() => handleEdit(row)}
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
                         <button 
-                          className="text-[var(--color-text-muted)] hover:text-red-500 transition-colors p-1"
+                          className={cn("transition-colors p-1", (role === 'supervisor' || role === 'Supervisor') ? "opacity-50 cursor-not-allowed text-[var(--color-text-muted)]" : "text-[var(--color-text-muted)] hover:text-red-500")}
+                          disabled={role === 'supervisor' || role === 'Supervisor'}
+                          title={(role === 'supervisor' || role === 'Supervisor') ? "You don't have permission to delete" : undefined}
                           onClick={() => handleDelete(row.id)}
                         >
                           <Trash2 className="w-4 h-4" />

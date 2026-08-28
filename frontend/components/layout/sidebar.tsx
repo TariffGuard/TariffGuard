@@ -25,7 +25,7 @@ const navItems: Array<{name: string, href: string, icon: LucideIcon, badge?: num
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { role } = useAuth();
+  const { role, user } = useAuth();
   const [unresolvedCount, setUnresolvedCount] = useState(0);
 
   useEffect(() => {
@@ -84,11 +84,11 @@ export function Sidebar() {
 
         <div className="flex items-center gap-3 px-2">
           <div className="w-8 h-8 rounded-full bg-[var(--color-primary)] flex items-center justify-center text-white font-medium text-sm">
-            {role ? role.charAt(0) : 'U'}
+            {role ? role.charAt(0).toUpperCase() : 'U'}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-[var(--color-text-primary)] truncate">Admin User</p>
-            <p className="text-xs text-[var(--color-text-muted)] truncate">{role || 'Guest'}</p>
+            <p className="text-sm font-medium text-[var(--color-text-primary)] truncate">{user?.username || 'Guest'}</p>
+            <p className="text-xs text-[var(--color-text-muted)] truncate capitalize">{role || 'Guest'}</p>
           </div>
         </div>
       </div>

@@ -25,6 +25,13 @@ export async function fetchApi(endpoint: string, options: RequestInit = {}) {
   });
 
   if (!response.ok) {
+    if (response.status === 403) {
+      throw new Error("You don't have permission to perform this action.");
+    }
+    if (response.status === 401) {
+      throw new Error("Please login again.");
+    }
+
     const errorBody = await response.text();
     let errorMessage = `API Error: ${response.statusText}`;
     try {

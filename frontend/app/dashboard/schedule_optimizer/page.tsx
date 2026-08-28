@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { fetchApi } from '@/lib/api';
 import { ChevronDown, ArrowRight, Lock, Play, RotateCcw, Sparkles, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/context/auth_context';
 
 
 const DEMO_JOBS: Job[] = [
@@ -69,6 +70,7 @@ const DEMO_JOBS: Job[] = [
 ];
 
 export default function ScheduleOptimizerPage() {
+  const { role } = useAuth();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [initialFetchedJobs, setInitialFetchedJobs] = useState<Job[]>([]);
   const [machines, setMachines] = useState<any[]>([]);
@@ -207,26 +209,48 @@ export default function ScheduleOptimizerPage() {
             </div>
           </div>
 
-          <Button 
-            variant="outline" 
-            disabled={!selectedJobId} 
-            className={cn("gap-2 border-[var(--color-primary)] text-[var(--color-primary)]", !selectedJobId && "opacity-50 border-gray-300 text-gray-400")}
-            onClick={handleLockSelected}
-          >
-            <Lock className="w-4 h-4" /> Lock Selected
-          </Button>
-          
-          <Button variant="outline" className="gap-2 text-[var(--color-text-primary)] border-[var(--color-text-primary)]" onClick={handleReset} disabled={!isOptimized}>
-            <RotateCcw className="w-4 h-4" /> Reset
-          </Button>
-          
-          <Button variant="primary" className="gap-2 shadow-md w-[170px]" onClick={handleOptimize} disabled={isOptimized || isOptimizing}>
-            {isOptimizing ? (
-              <><Loader2 className="w-4 h-4 animate-spin" /> Optimizing...</>
-            ) : (
-              <><Play className="w-4 h-4 fill-current" /> Run Optimization</>
-            )}
-          </Button>
+            <>
+              <Button 
+                variant="outline" 
+                disabled={!selectedJobId || role === 'supervisor' || role === 'Supervisor'} 
+                className={cn("gap-2 transition-colors", 
+                  (!selectedJobId) ? "opacity-50 border-gray-300 text-gray-400" : 
+                  (role === 'supervisor' || role === 'Supervisor') ? "opacity-50 cursor-not-allowed border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-transparent" : "border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary-light)]"
+                )}
+                title={(role === 'supervisor' || role === 'Supervisor') ? "You don't have permission to lock jobs" : undefined}
+                onClick={handleLockSelected}
+              >
+                <Lock className="w-4 h-4" /> Lock Selected
+              </Button>
+              
+              <Button 
+                variant="outline" 
+                className={cn("gap-2 text-[var(--color-text-primary)] border-[var(--color-text-primary)] transition-colors",
+                  (role === 'supervisor' || role === 'Supervisor') ? "opacity-50 cursor-not-allowed hover:bg-transparent" : "hover:bg-[rgba(255,255,255,0.1)]"
+                )} 
+                onClick={handleReset} 
+                disabled={!isOptimized || role === 'supervisor' || role === 'Supervisor'}
+                title={(role === 'supervisor' || role === 'Supervisor') ? "You don't have permission to reset" : undefined}
+              >
+                <RotateCcw className="w-4 h-4" /> Reset
+              </Button>
+              
+              <Button 
+                variant="primary" 
+                className={cn("gap-2 shadow-md w-[170px] transition-colors",
+                  (role === 'supervisor' || role === 'Supervisor') ? "opacity-50 cursor-not-allowed hover:bg-[var(--color-primary)]" : "hover:bg-[var(--color-primary-hover)]"
+                )} 
+                onClick={handleOptimize} 
+                disabled={isOptimized || isOptimizing || role === 'supervisor' || role === 'Supervisor'}
+                title={(role === 'supervisor' || role === 'Supervisor') ? "You don't have permission to optimize" : undefined}
+              >
+                {isOptimizing ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Optimizing...</>
+                ) : (
+                  <><Play className="w-4 h-4 fill-current" /> Run Optimization</>
+                )}
+              </Button>
+            </>
         </div>
       </div>
       

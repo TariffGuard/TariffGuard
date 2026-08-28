@@ -9,6 +9,7 @@ import {
 import { cn } from '@/lib/utils';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceDot } from 'recharts';
 import { fetchApi } from '@/lib/api';
+import { useAuth } from '@/context/auth_context';
 
 const energyData = [
   { day: 'Wed 07', value: 140 },
@@ -22,6 +23,7 @@ const energyData = [
 ];
 
 export default function AlertsPage() {
+  const { role } = useAuth();
   const [alerts, setAlerts] = useState<any[]>([]);
   const [stats, setStats] = useState({ total: 0, critical: 0, medium: 0, resolved: 0 });
   const [loading, setLoading] = useState(true);
@@ -157,7 +159,7 @@ export default function AlertsPage() {
           variant="outline" 
           className="border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary-light)] h-9 px-4 disabled:opacity-50"
           onClick={handleMarkAllRead}
-          disabled={markingAll || alerts.length === 0}
+          disabled={markingAll || alerts.length === 0 || role === 'supervisor' || role === 'Supervisor'}
         >
           {markingAll ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
           Mark All Read

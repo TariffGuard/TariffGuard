@@ -12,6 +12,7 @@ import {
   Tooltip as RechartsTooltip, ResponsiveContainer, Cell
 } from 'recharts';
 import { fetchApi } from '@/lib/api';
+import { useAuth } from '@/context/auth_context';
 
 const energyData = [
   { id: 'M-01', value: 850 },
@@ -25,6 +26,7 @@ const energyData = [
 ];
 
 export default function MachinesPage() {
+  const { role } = useAuth();
   const [machines, setMachines] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedMachine, setSelectedMachine] = useState<any>(null);
@@ -253,12 +255,18 @@ export default function MachinesPage() {
       <GlassPanel className="rounded-[var(--radius-lg)] overflow-hidden">
         <div className="p-5 border-b border-[rgba(255,255,255,0.4)] flex justify-between items-center bg-[rgba(255,255,255,0.2)]">
           <h3 className="font-semibold text-[var(--color-primary)]">All Machines</h3>
-          <Button 
-            onClick={() => setIsAddModalOpen(true)}
-            className="bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] h-9 px-4 text-sm rounded-[var(--radius-sm)] border-none"
-          >
-            <Plus className="w-4 h-4 mr-2" /> Add Machine
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button 
+              onClick={() => setIsAddModalOpen(true)}
+              disabled={role === 'supervisor' || role === 'Supervisor'}
+              className={cn("bg-[var(--color-primary)] text-white h-9 px-4 text-sm rounded-[var(--radius-sm)] border-none transition-colors", 
+                (role === 'supervisor' || role === 'Supervisor') ? "opacity-50 cursor-not-allowed hover:bg-[var(--color-primary)]" : "hover:bg-[var(--color-primary-hover)]"
+              )}
+              title={(role === 'supervisor' || role === 'Supervisor') ? "You don't have permission to add machines" : undefined}
+            >
+              <Plus className="w-4 h-4 mr-2" /> Add Machine
+            </Button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm border-collapse">

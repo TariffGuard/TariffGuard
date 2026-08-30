@@ -1,0 +1,6 @@
+- Route groups are used to separate public auth pages (`(auth)`) and marketing pages (`(marketing)`) from the authenticated dashboard section.
+- Shared application chrome (sidebar, topbar, main panel) is composed through the `AppShell` layout component rather than duplicated per page.
+- Authentication state (role, user, token) is managed centrally in a React context provider and persisted to `localStorage` for session recovery.
+- API calls go through a single `fetchApi` helper that injects Bearer tokens from `localStorage`, with standardized 401/403 error handling.
+- Domain data shapes are defined once in `types/index.ts` and reused by both mock data and API consumers.
+- Reusable visual building blocks (buttons, badges, KPI cards, panels) are extracted into `components/ui` and styled with Tailwind utility classes.

@@ -1,0 +1,1 @@
+Next.js 16 App Router with React 19, Tailwind CSS v4 (via @tailwindcss/postcss), Recharts for data visualization, Lucide icons, and Jest + @testing-library/react for component tests.

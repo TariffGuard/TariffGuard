@@ -1,0 +1,1 @@
+Run development server with `npm run dev`, build with `npm run build`, start production with `npm run start`, lint with `npm run lint`, and run tests with `npm run test` (Jest configured via `next/jest` adapter using `jest-environment-jsdom`).

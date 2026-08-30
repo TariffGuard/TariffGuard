@@ -60,6 +60,7 @@ Thumbs.db
 .mypy_cache/
 
 backend/test.db
+backend/models_trained/
 
 # Environment variables
 .env

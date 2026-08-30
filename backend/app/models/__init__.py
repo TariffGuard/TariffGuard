@@ -3,6 +3,7 @@ from app.models.machine import Machine
 from app.models.production_order import ProductionOrder
 from app.models.tariff import Tariff
 from app.models.meter_reading import MeterReading
+from app.models.weather_reading import WeatherReading
 from app.models.user import User
 from app.models.alert import Alert
 
@@ -12,5 +13,7 @@ __all__ = [
     "ProductionOrder",
     "Tariff",
     "MeterReading",
-    "User"
+    "WeatherReading",
+    "User",
+    "Alert",
 ]

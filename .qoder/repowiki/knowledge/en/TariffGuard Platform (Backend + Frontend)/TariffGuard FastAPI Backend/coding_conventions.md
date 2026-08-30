@@ -1,0 +1,6 @@
+- Each resource domain is organized as a quartet of sibling files under `models/`, `schemas/`, and `api/` sharing the same name (e.g. factory, machine, tariff), keeping ORM, Pydantic, and route definitions co-located.
+- Database sessions are injected into endpoints via the `Depends(get_db)` dependency, and all mutations commit and refresh the object before returning it.
+- Authentication and authorization are enforced declaratively using FastAPI `Depends` — `get_current_user` for any authenticated access and `require_role('manager'|'owner')` for write operations — rather than inline checks inside handlers.
+- Pydantic schemas follow a Base/Create/Update/Response pattern per model, with `Optional[...] = None` fields on Update schemas to support partial updates via `exclude_unset=True`.
+- Configuration values are read through the singleton `settings` instance from `app.core.config` (loaded from `.env` via pydantic-settings) instead of direct `os.getenv` calls in business code.
+- Global error handling is centralized by registering custom handlers for `RequestValidationError`, `SQLAlchemyError`, and generic `Exception` in `main.py`.

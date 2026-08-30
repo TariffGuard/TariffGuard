@@ -3,7 +3,7 @@ Cost Calculation Service for TariffGuard
 Calculates energy costs based on tariff periods and consumption
 """
 
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from typing import List, Dict, Optional
 from sqlalchemy.orm import Session
 from app.models.tariff import Tariff
@@ -107,4 +107,89 @@ class CostCalculator:
             "kwh": kwh,
             "rate": rate,
             "estimated_cost": round(cost, 2)
+        }
+
+    # ------------------------------------------------------------------
+    # Solar-aware cost calculation
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def calculate_schedule_cost(
+        slot_loads: List[Dict],
+        tariffs: List[Tariff],
+        solar_estimates: Optional[Dict[datetime, float]] = None,
+    ) -> Dict:
+        """
+        Calculate energy cost for a planned schedule, accounting for solar.
+
+        Parameters
+        ----------
+        slot_loads : list of dicts
+            Each dict must have:
+                "timestamp" : datetime
+                "load_kw"   : float  (total planned consumption)
+        tariffs : list of Tariff
+            Active tariff rows.
+        solar_estimates : dict, optional
+            Mapping of timestamp → solar_kw from SolarEstimator.
+            If not provided, solar contribution is zero.
+
+        Returns
+        -------
+        dict with total_cost, total_kwh, grid_kwh, solar_kwh, peak_grid_kw,
+        and per-slot breakdown.
+        """
+        if solar_estimates is None:
+            solar_estimates = {}
+
+        total_cost = 0.0
+        total_kwh = 0.0
+        solar_kwh = 0.0
+        grid_kwh = 0.0
+        peak_grid_kw = 0.0
+        slot_details = []
+
+        for slot in slot_loads:
+            ts = slot["timestamp"]
+            load_kw = slot["load_kw"]
+            rate = CostCalculator.get_tariff_rate(tariffs, ts)
+
+            # Solar contribution for this slot (capped at load)
+            slot_solar = min(solar_estimates.get(ts, 0.0), load_kw)
+            slot_grid = max(0.0, load_kw - slot_solar)
+
+            # For 1-hour slots: kWh = kW × 1h
+            slot_grid_kwh = slot_grid
+            slot_solar_kwh = slot_solar
+
+            slot_cost = slot_grid_kwh * rate
+
+            total_cost += slot_cost
+            total_kwh += load_kw
+            grid_kwh += slot_grid_kwh
+            solar_kwh += slot_solar_kwh
+            peak_grid_kw = max(peak_grid_kw, slot_grid)
+
+            slot_details.append({
+                "timestamp": ts,
+                "load_kw": round(load_kw, 2),
+                "solar_kw": round(slot_solar, 2),
+                "grid_kw": round(slot_grid, 2),
+                "rate": rate,
+                "cost": round(slot_cost, 2),
+            })
+
+        return {
+            "total_cost": round(total_cost, 2),
+            "total_kwh": round(total_kwh, 2),
+            "grid_kwh": round(grid_kwh, 2),
+            "solar_kwh": round(solar_kwh, 2),
+            "solar_utilization_pct": round(
+                solar_kwh / total_kwh * 100, 1
+            ) if total_kwh > 0 else 0.0,
+            "peak_grid_kw": round(peak_grid_kw, 2),
+            "average_rate": round(
+                total_cost / grid_kwh, 2
+            ) if grid_kwh > 0 else 0.0,
+            "slots": slot_details,
         }

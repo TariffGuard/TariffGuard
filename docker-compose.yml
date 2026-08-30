@@ -38,6 +38,8 @@ services:
       DEBUG: "true"
       ALCHEMY_KEY: ${ALCHEMY_KEY:-dummy_key}
       QWEN_API_KEY: ${QWEN_API_KEY:-dummy_key}
+      QWEN_BASE_URL: https://dashscope.aliyuncs.com/compatible-mode/v1
+      QWEN_MODEL: qwen-plus
     depends_on:
       db:
         condition: service_healthy

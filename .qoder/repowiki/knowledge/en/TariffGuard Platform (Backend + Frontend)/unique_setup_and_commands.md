@@ -1,0 +1,1 @@
+`docker-compose up -d --build` starts MySQL, the backend (uvicorn on :8000), and exposes Swagger at `http://localhost:8000/docs`; run `docker-compose exec backend python seed.py` to populate demo data; tests are executed via `docker-compose exec backend pytest -v`.

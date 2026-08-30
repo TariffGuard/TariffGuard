@@ -14,6 +14,8 @@ from app.api.dashboard import router as dashboard_router
 from app.api.optimization import router as optimization_router
 from app.core.database import init_db
 from app.api.alert import router as alert_router
+from app.api.forecast import router as forecast_router
+from app.api.ai import router as ai_router
 
 
 app = FastAPI(
@@ -56,6 +58,8 @@ app.include_router(optimization_router)
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(alert_router)
+app.include_router(forecast_router)
+app.include_router(ai_router)
 # Serve static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 

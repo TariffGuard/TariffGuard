@@ -1,0 +1,1 @@
+Docker Compose orchestrates all children; MySQL 8.0 is the shared persistence layer; FastAPI serves both the REST API and the embedded frontend dashboard at runtime.

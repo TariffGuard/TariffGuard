@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Send, Bot, User, Zap } from 'lucide-react';
+import { Send, Bot, User, Zap, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { fetchApi } from '@/lib/api';
 
 type Message = {
   id: string;
@@ -26,23 +27,47 @@ export default function ChatPage() {
     }
   ]);
   const [inputValue, setInputValue] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSend = (text: string) => {
-    if (!text.trim()) return;
+  const handleSend = async (text: string) => {
+    if (!text.trim() || isLoading) return;
 
     const newUserMsg: Message = { id: Date.now().toString(), role: 'user', content: text };
     setMessages(prev => [...prev, newUserMsg]);
     setInputValue('');
+    setIsLoading(true);
 
-    // Simulate AI response
-    setTimeout(() => {
+    try {
+      const isSchedule = text.toLowerCase().includes('schedule');
+      const endpoint = isSchedule 
+        ? '/api/ai/explain-schedule/1' 
+        : `/api/ai/explain/1?message=${encodeURIComponent(text)}`;
+      
+      const response = await fetchApi(endpoint, { method: 'POST' });
+      
+      let aiText = "I'm sorry, I couldn't generate an explanation.";
+      if (response && response.ai_explanation) {
+        aiText = response.ai_explanation;
+      }
+
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
         role: 'ai',
-        content: "I'm TariffGuard AI. I can help you understand your energy schedules, tariffs, and anomalies.",
+        content: aiText,
       };
       setMessages(prev => [...prev, aiResponse]);
-    }, 1000);
+    } catch (error) {
+      console.error("AI API Error:", error);
+      // Fallback to mock response if API fails
+      const fallbackResponse: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'ai',
+        content: "I'm TariffGuard AI. (Fallback mode) I can help you understand your energy schedules, tariffs, and anomalies.",
+      };
+      setMessages(prev => [...prev, fallbackResponse]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -79,6 +104,17 @@ export default function ChatPage() {
               </div>
             </div>
           ))}
+          {isLoading && (
+            <div className="flex gap-4 max-w-[85%]">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 bg-white/60 text-[var(--color-primary)] shadow-sm backdrop-blur-md border border-white/50">
+                <Bot size={16} />
+              </div>
+              <div className="px-5 py-3.5 text-[15px] leading-relaxed shadow-sm glass-card text-[var(--color-text-primary)] rounded-[20px] rounded-tl-[4px] border border-[rgba(255,255,255,0.6)] flex items-center gap-2">
+                <Loader2 size={16} className="animate-spin text-[var(--color-primary)]" />
+                <span className="text-[var(--color-text-muted)] italic text-sm">Analyzing data...</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Input Area */}
@@ -111,7 +147,7 @@ export default function ChatPage() {
             />
             <button
               type="submit"
-              disabled={!inputValue.trim()}
+              disabled={!inputValue.trim() || isLoading}
               className="absolute right-2 top-2 bottom-2 w-11 bg-[var(--color-primary)] hover:bg-[var(--color-primary-soft)] text-white rounded-full flex items-center justify-center transition-all disabled:opacity-50 disabled:hover:bg-[var(--color-primary)] shadow-sm"
             >
               <Send size={18} className="ml-0.5" />

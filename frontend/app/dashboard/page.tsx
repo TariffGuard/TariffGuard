@@ -18,7 +18,14 @@ export default function DashboardOverview() {
       try {
         const factoryId = 1; // Use demo factory ID
         
-        const [summary, factoryData, alerts, meterReadings] = await Promise.all([
+        const today = new Date();
+        today.setMinutes(0, 0, 0);
+        // Start from next hour
+        today.setHours(today.getHours() + 1);
+        const startIso = today.toISOString();
+        const endIso = new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString();
+
+        const [summary, factoryData, alerts, loadForecast, solarForecast] = await Promise.all([
           fetchApi('/api/dashboard/summary').catch(e => {
             console.error('Failed to fetch summary:', e);
             return null;
@@ -31,19 +38,26 @@ export default function DashboardOverview() {
             console.error('Failed to fetch alerts:', e);
             return null;
           }),
-          fetchApi(`/api/meter-readings/?factory_id=${factoryId}&limit=24`).catch(e => {
-            console.error('Failed to fetch meter readings:', e);
+          fetchApi(`/api/forecast/load/${factoryId}?start_time=${encodeURIComponent(startIso)}&hours=24`, { method: 'POST' }).catch(e => {
+            console.error('Failed to fetch load forecast:', e);
+            return null;
+          }),
+          fetchApi(`/api/forecast/solar/${factoryId}?start_time=${encodeURIComponent(startIso)}&end_time=${encodeURIComponent(endIso)}`, { method: 'POST' }).catch(e => {
+            console.error('Failed to fetch solar forecast:', e);
             return null;
           })
         ]);
 
         let chartData = mockEnergyData;
-        if (meterReadings && meterReadings.length > 0) {
-          chartData = [...meterReadings].reverse().map((r: any) => ({
-            time: new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            grid_kw: Math.round(r.kw || 0),
-            solar_kw: Math.round(r.solar_kwh || 0)
-          }));
+        if (loadForecast?.hourly && solarForecast?.hourly) {
+          chartData = loadForecast.hourly.map((load: any) => {
+            const solar = solarForecast.hourly.find((s: any) => s.timestamp === load.timestamp) || { solar_kw: 0 };
+            return {
+              time: new Date(load.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              grid_kw: Math.round(load.predicted_kw || 0),
+              solar_kw: Math.round(solar.solar_kw || 0)
+            };
+          });
         }
 
         setData({
@@ -135,7 +149,7 @@ export default function DashboardOverview() {
         {/* Main Chart Area */}
         <div className="lg:col-span-2">
           <GlassPanel asCard className="p-6 h-full">
-            <h3 className="text-base font-semibold text-[var(--color-text-primary)] mb-2 uppercase tracking-wide">Energy Profile (Last 24h)</h3>
+            <h3 className="text-base font-semibold text-[var(--color-text-primary)] mb-2 uppercase tracking-wide">Forecasted Energy Profile (Next 24h)</h3>
             <EnergyConsumptionChart data={energyChartData} />
           </GlassPanel>
         </div>

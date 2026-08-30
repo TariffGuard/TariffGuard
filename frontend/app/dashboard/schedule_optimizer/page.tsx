@@ -11,63 +11,7 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/auth_context';
 
 
-const DEMO_JOBS: Job[] = [
-  {
-    id: 'ORD-101',
-    machineId: 3,
-    name: 'SPN-Large',
-    baseline_start: 17 * 60,
-    baseline_end: 21 * 60,
-    optimized_start: 11 * 60,
-    optimized_end: 15 * 60,
-    locked: false,
-    energy_type: 'solar' as const
-  },
-  {
-    id: 'ORD-102',
-    machineId: 5,
-    name: 'WEV-Standard',
-    baseline_start: 18 * 60,
-    baseline_end: 22 * 60,
-    optimized_start: 14 * 60,
-    optimized_end: 18 * 60,
-    locked: false,
-    energy_type: 'energy' as const
-  },
-  {
-    id: 'ORD-103',
-    machineId: 1,
-    name: 'DYE-Urgent',
-    baseline_start: 8 * 60,
-    baseline_end: 11 * 60,
-    optimized_start: 8 * 60,
-    optimized_end: 11 * 60,
-    locked: true,
-    energy_type: 'locked' as const
-  },
-  {
-    id: 'ORD-104',
-    machineId: 7,
-    name: 'FIN-Batch',
-    baseline_start: 19 * 60,
-    baseline_end: 21 * 60 + 30,
-    optimized_start: 15 * 60 + 30,
-    optimized_end: 18 * 60,
-    locked: false,
-    energy_type: 'energy' as const
-  },
-  {
-    id: 'ORD-105',
-    machineId: 8,
-    name: 'PKG-Final',
-    baseline_start: 21 * 60,
-    baseline_end: 22 * 60,
-    optimized_start: 9 * 60,
-    optimized_end: 10 * 60,
-    locked: false,
-    energy_type: 'solar' as const
-  }
-];
+
 
 export default function ScheduleOptimizerPage() {
   const { role } = useAuth();
@@ -80,6 +24,7 @@ export default function ScheduleOptimizerPage() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filterMachineId, setFilterMachineId] = useState<string>('all');
+  const [dateRange, setDateRange] = useState<string>('7days');
 
   useEffect(() => {
     const initData = async () => {
@@ -90,7 +35,7 @@ export default function ScheduleOptimizerPage() {
         ]);
         
         const mappedMachines = machinesData.map((m: any) => ({
-          id: m.id,
+          id: Number(m.id),
           name: m.name,
           type: m.machine_type || m.type,
           power_kw: m.power_kw,
@@ -98,14 +43,8 @@ export default function ScheduleOptimizerPage() {
         }));
         setMachines(mappedMachines);
 
-        const initialMappedJobs = DEMO_JOBS.map(j => ({
-          ...j,
-          optimized_start: j.baseline_start,
-          optimized_end: j.baseline_end,
-          energy_type: (j.locked ? 'locked' : 'energy') as 'locked' | 'energy'
-        }));
-        setJobs(initialMappedJobs);
-        setInitialFetchedJobs(initialMappedJobs);
+        setJobs([]);
+        setInitialFetchedJobs([]);
       } catch (err) {
         console.error('Failed to init optimizer data:', err);
       }
@@ -126,21 +65,85 @@ export default function ScheduleOptimizerPage() {
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
+      let startDate = new Date(today);
+      let endDate = new Date(today);
+
+      if (dateRange === 'today') {
+        endDate.setDate(today.getDate() + 1);
+      } else if (dateRange === '7days') {
+        endDate.setDate(today.getDate() + 7);
+      } else if (dateRange === '14days') {
+        endDate.setDate(today.getDate() + 14);
+      } else if (dateRange === 'month') {
+        startDate = new Date(today.getFullYear(), today.getMonth(), 1);
+        endDate = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+      }
       
-      const startIso = today.toISOString();
-      const endIso = tomorrow.toISOString();
+      const startIso = startDate.toISOString();
+      const endIso = endDate.toISOString();
       
       const data = await fetchApi(`/api/optimize/compare/1?start_time=${encodeURIComponent(startIso)}&end_time=${encodeURIComponent(endIso)}`, { method: 'POST' });
       
-      setJobs(DEMO_JOBS);
+      if (!data.schedule || data.schedule.length === 0) {
+        setJobs([]);
+        setMetrics({
+          baselineCost: 0,
+          optimizedCost: 0,
+          savingsAmt: 0,
+          savingsPct: 0
+        });
+        setIsOptimized(true);
+        return;
+      }
+
+      const getEpochMins = (isoString: string) => {
+        return new Date(isoString).getTime() / 60000;
+      };
+
+      const mappedJobs: Job[] = data.schedule.map((optJob: any) => {
+        const baseJob = data.baseline.schedule.find((b: any) => b.order_id === optJob.order_id);
+        
+        const optimizedStartStr = optJob.start_time;
+        const optimizedEndStr = optJob.end_time;
+        const baselineStartStr = baseJob ? baseJob.start_time : optJob.start_time;
+        const baselineEndStr = baseJob ? baseJob.end_time : optJob.end_time;
+
+        const optStartMins = getEpochMins(optimizedStartStr);
+        const optEndMins = getEpochMins(optimizedEndStr);
+        const baseStartMins = getEpochMins(baselineStartStr);
+        const baseEndMins = getEpochMins(baselineEndStr);
+
+        const startHour = new Date(optimizedStartStr).getHours();
+        let energyType: 'solar' | 'peak' | 'offpeak' | 'locked' = 'offpeak';
+        if (optJob.locked) {
+          energyType = 'locked';
+        } else if (startHour >= 9 && startHour < 16) {
+          energyType = 'solar';
+        } else if (startHour >= 18 && startHour < 22) {
+          energyType = 'peak';
+        }
+
+        return {
+          id: optJob.order_no,
+          machineId: Number(optJob.machine_id),
+          name: optJob.order_no,
+          baseline_start: baseStartMins,
+          baseline_end: baseEndMins,
+          optimized_start: optStartMins,
+          optimized_end: optEndMins,
+          locked: optJob.locked || false,
+          energy_type: energyType as any
+        };
+      });
+
+      setJobs(mappedJobs);
+      setInitialFetchedJobs(mappedJobs);
       
       setMetrics({
-        baselineCost: data.baseline.total_cost,
-        optimizedCost: data.optimized.total_cost,
-        savingsAmt: data.savings.amount,
-        savingsPct: data.savings.percentage
+        baselineCost: data.baseline.total_cost || 0,
+        optimizedCost: data.optimized.total_cost || 0,
+        savingsAmt: data.savings.amount || 0,
+        savingsPct: data.savings.percentage || 0
       });
       setIsOptimized(true);
     } catch (err: any) {
@@ -168,12 +171,16 @@ export default function ScheduleOptimizerPage() {
   };
 
   const formatTime = (mins: number) => {
-    const h = Math.floor(mins / 60);
-    const m = Math.floor(mins % 60);
-    return `${(h % 24).toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+    const d = new Date(mins * 60000);
+    const m = d.getMonth() + 1;
+    const day = d.getDate();
+    const h = d.getHours();
+    const min = d.getMinutes();
+    return `${m}/${day} ${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`;
   };
 
   const changedJobs = jobs.filter(j => j.baseline_start !== j.optimized_start);
+  const displayJobs = changedJobs.length > 0 ? changedJobs : jobs;
 
   return (
     <div className="space-y-6 h-full flex flex-col animate-in fade-in duration-500">
@@ -187,6 +194,17 @@ export default function ScheduleOptimizerPage() {
         </div>
         
         <div className="flex items-center gap-3 flex-wrap">
+          <select 
+            className="px-3 py-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] text-sm focus:outline-none focus:border-[var(--color-primary)] text-[var(--color-text-primary)] font-medium"
+            value={dateRange}
+            onChange={(e) => setDateRange(e.target.value)}
+          >
+            <option value="today">Today</option>
+            <option value="7days">Next 7 days</option>
+            <option value="14days">Next 14 days</option>
+            <option value="month">This Month</option>
+          </select>
+
           <select 
             className="px-3 py-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] text-sm focus:outline-none focus:border-[var(--color-primary)] text-[var(--color-text-primary)] font-medium"
             value={filterMachineId}
@@ -266,14 +284,20 @@ export default function ScheduleOptimizerPage() {
         {/* Left Side: Gantt Chart */}
         <div className="lg:col-span-2 flex flex-col min-h-0">
           <GlassPanel className="p-6 flex-1 overflow-auto rounded-[var(--radius-lg)]">
-            <ScheduleGantt 
-              machines={filterMachineId === 'all' ? machines : machines.filter(m => m.id.toString() === filterMachineId)} 
-              jobs={jobs} 
-              isOptimized={isOptimized}
-              showBaseline={showBaseline}
-              selectedJobId={selectedJobId}
-              onJobClick={setSelectedJobId}
-            />
+            {isOptimized && jobs.length === 0 ? (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-[var(--color-text-muted)] italic">No schedule data available. Please seed data or add orders.</p>
+              </div>
+            ) : (
+              <ScheduleGantt 
+                machines={filterMachineId === 'all' ? machines : machines.filter(m => m.id.toString() === filterMachineId)} 
+                jobs={jobs} 
+                isOptimized={isOptimized}
+                showBaseline={showBaseline}
+                selectedJobId={selectedJobId}
+                onJobClick={setSelectedJobId}
+              />
+            )}
           </GlassPanel>
         </div>
 
@@ -315,8 +339,10 @@ export default function ScheduleOptimizerPage() {
             <div className="space-y-3 overflow-y-auto flex-1 pr-2">
               {!isOptimized ? (
                 <p className="text-sm text-[var(--color-text-muted)] italic text-center mt-6">Run optimization to see proposed schedule changes.</p>
+              ) : jobs.length === 0 ? (
+                <p className="text-sm text-[var(--color-text-muted)] italic text-center mt-6">No schedule data available. Please seed data or add orders.</p>
               ) : (
-                changedJobs.map((job) => (
+                displayJobs.map((job) => (
                   <div 
                     key={job.id} 
                     className={cn(
@@ -327,13 +353,21 @@ export default function ScheduleOptimizerPage() {
                   >
                     <div className="flex justify-between items-center mb-2">
                       <span className="font-mono text-xs font-bold text-[var(--color-text-primary)]">{job.name}</span>
-                      <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--color-success-soft)] text-[var(--color-success)]">
-                        {job.energy_type === 'solar' ? 'Use Solar' : 'Avoid Peak'}
+                      <span className={cn("text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded", 
+                        job.energy_type === 'solar' ? "bg-[var(--color-success-soft)] text-[var(--color-success)]" :
+                        job.energy_type === 'peak' ? "bg-[var(--color-warning-soft)] text-[var(--color-warning)]" :
+                        "bg-blue-100 text-blue-600"
+                      )}>
+                        {job.energy_type === 'solar' ? 'Use Solar' : job.energy_type === 'peak' ? 'Peak Warning' : 'Optimized by AI'}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 text-xs font-mono text-[var(--color-text-secondary)]">
-                      <span className="line-through opacity-70">{formatTime(job.baseline_start)}</span>
-                      <ArrowRight className="w-3 h-3 text-[var(--color-text-muted)]" />
+                      {job.baseline_start !== job.optimized_start && (
+                        <>
+                          <span className="line-through opacity-70">{formatTime(job.baseline_start)}</span>
+                          <ArrowRight className="w-3 h-3 text-[var(--color-text-muted)]" />
+                        </>
+                      )}
                       <span className="font-bold text-[var(--color-primary)]">{formatTime(job.optimized_start)}</span>
                     </div>
                   </div>

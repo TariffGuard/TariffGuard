@@ -9,7 +9,7 @@ programming formulation.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional, Tuple
 
 from sqlalchemy.orm import Session
@@ -141,6 +141,11 @@ class ScheduleOptimizer:
         Returns the same response shape as the previous greedy optimizer
         so existing API consumers are not broken.
         """
+        if start_time.tzinfo:
+            start_time = start_time.astimezone(timezone.utc).replace(tzinfo=None)
+        if end_time.tzinfo:
+            end_time = end_time.astimezone(timezone.utc).replace(tzinfo=None)
+            
         tariffs = self.get_available_tariffs()
         machines = self.get_available_machines(factory_id)
         orders = self.get_orders_for_window(factory_id, start_time, end_time)
@@ -433,6 +438,11 @@ class ScheduleOptimizer:
         Compare a naive baseline schedule (earliest feasible) against
         the CP-SAT optimized schedule.
         """
+        if start_time.tzinfo:
+            start_time = start_time.astimezone(timezone.utc).replace(tzinfo=None)
+        if end_time.tzinfo:
+            end_time = end_time.astimezone(timezone.utc).replace(tzinfo=None)
+
         optimized = self.create_optimized_schedule(
             factory_id, start_time, end_time
         )

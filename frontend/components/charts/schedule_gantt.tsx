@@ -12,7 +12,7 @@ export type Job = {
   optimized_start: number;
   optimized_end: number;
   locked: boolean;
-  energy_type: 'energy' | 'solar' | 'locked';
+  energy_type: 'peak' | 'offpeak' | 'solar' | 'locked' | 'energy';
 };
 
 interface ScheduleGanttProps {
@@ -25,19 +25,62 @@ interface ScheduleGanttProps {
 }
 
 export function ScheduleGantt({ machines, jobs, isOptimized, showBaseline, selectedJobId, onJobClick }: ScheduleGanttProps) {
-  const startMins = 6 * 60; // 06:00
-  const endMins = 22 * 60; // 22:00
-  const totalMins = endMins - startMins; // 960
+  let startMins = Infinity;
+  let endMins = -Infinity;
+
+  if (jobs.length > 0) {
+    jobs.forEach(job => {
+      const activeStart = isOptimized ? job.optimized_start : job.baseline_start;
+      const activeEnd = isOptimized ? job.optimized_end : job.baseline_end;
+      if (activeStart < startMins) startMins = activeStart;
+      if (activeEnd > endMins) endMins = activeEnd;
+      if (job.baseline_start < startMins) startMins = job.baseline_start;
+      if (job.baseline_end > endMins) endMins = job.baseline_end;
+    });
+    startMins -= 60; // 1 hr padding
+    endMins += 60;
+  } else {
+    const today = new Date();
+    today.setHours(6, 0, 0, 0);
+    startMins = today.getTime() / 60000;
+    endMins = startMins + 16 * 60;
+  }
+
+  const totalMins = Math.max(60, endMins - startMins);
   
   const getPositionPercent = (mins: number) => Math.max(0, Math.min(100, ((mins - startMins) / totalMins) * 100));
   const getWidthPercent = (startM: number, endM: number) => getPositionPercent(endM) - getPositionPercent(startM);
 
-  const solarStart = getPositionPercent(9 * 60);
-  const solarWidth = getWidthPercent(9 * 60, 16 * 60);
-  const peakStart = getPositionPercent(18 * 60);
-  const peakWidth = getWidthPercent(18 * 60, 22 * 60);
-  const currentMins = 14 * 60 + 30; // 14:30
+  const currentMins = new Date().getTime() / 60000;
   const currentPos = getPositionPercent(currentMins);
+
+  const labels: { mins: number, label: string }[] = [];
+  const hoursStep = totalMins > 72 * 60 ? 24 : (totalMins > 24 * 60 ? 6 : 2);
+  let current = Math.ceil(startMins / 60 / hoursStep) * hoursStep * 60;
+  while (current <= endMins) {
+    const d = new Date(current * 60000);
+    let label = `${d.getHours().toString().padStart(2, '0')}:00`;
+    if (hoursStep >= 24 || d.getHours() === 0) {
+        label = `${d.getMonth()+1}/${d.getDate()} ` + (hoursStep < 24 ? label : '');
+    }
+    labels.push({ mins: current, label });
+    current += hoursStep * 60;
+  }
+
+  // Generate daily tariff zones
+  const daysCount = Math.ceil(totalMins / (24 * 60)) + 1;
+  const firstDayStart = Math.floor(startMins / (24 * 60)) * 24 * 60 - new Date().getTimezoneOffset(); // Rough local midnight sync
+  const dailyZones = [];
+  for (let i = -1; i <= daysCount; i++) {
+    const dayStartM = firstDayStart + i * 24 * 60;
+    dailyZones.push({
+      id: i,
+      solarLeft: getPositionPercent(dayStartM + 9 * 60),
+      solarWidth: getPositionPercent(dayStartM + 16 * 60) - getPositionPercent(dayStartM + 9 * 60),
+      peakLeft: getPositionPercent(dayStartM + 18 * 60),
+      peakWidth: getPositionPercent(dayStartM + 22 * 60) - getPositionPercent(dayStartM + 18 * 60),
+    });
+  }
 
   const [hoveredJob, setHoveredJob] = useState<string | null>(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
@@ -49,13 +92,13 @@ export function ScheduleGantt({ machines, jobs, isOptimized, showBaseline, selec
         <div className="flex border-b border-[rgba(255,255,255,0.2)] pb-2 mb-4 relative sticky top-0 bg-[rgba(15,15,15,0.05)] z-20 backdrop-blur-md">
           <div className="w-40 shrink-0 font-medium text-sm text-[var(--color-text-secondary)]">Machine</div>
           <div className="flex-1 relative h-6">
-            {[6, 8, 10, 12, 14, 16, 18, 20, 22].map((hour) => (
+            {labels.map((item) => (
               <div 
-                key={hour} 
-                className="absolute font-mono text-xs text-[var(--color-text-muted)] transform -translate-x-1/2"
-                style={{ left: `${getPositionPercent(hour * 60)}%` }}
+                key={item.mins} 
+                className="absolute font-mono text-xs text-[var(--color-text-muted)] transform -translate-x-1/2 whitespace-nowrap"
+                style={{ left: `${getPositionPercent(item.mins)}%` }}
               >
-                {hour.toString().padStart(2, '0')}:00
+                {item.label}
               </div>
             ))}
           </div>
@@ -66,23 +109,35 @@ export function ScheduleGantt({ machines, jobs, isOptimized, showBaseline, selec
           
           {/* Background Shadings */}
           <div className="absolute top-0 bottom-0 left-40 right-0 pointer-events-none z-0">
-            <div 
-              className="absolute top-0 bottom-0 bg-[var(--color-success-soft)] opacity-10 border-l border-r border-[var(--color-success)] border-dashed"
-              style={{ left: `${solarStart}%`, width: `${solarWidth}%` }}
-            >
-              <div className="absolute top-2 left-2 text-[10px] font-bold text-[var(--color-success)] uppercase tracking-widest opacity-60">Solar Window</div>
-            </div>
-            
-            <div 
-              className="absolute top-0 bottom-0 bg-[var(--color-warning-soft)] opacity-10 border-l border-[var(--color-warning)] border-dashed"
-              style={{ left: `${peakStart}%`, width: `${peakWidth}%` }}
-            >
-              <div className="absolute top-2 left-2 text-[10px] font-bold text-[var(--color-warning)] uppercase tracking-widest opacity-60">Peak Tariff</div>
-            </div>
+            {dailyZones.map(zone => (
+              <div key={`zone-${zone.id}`}>
+                {zone.solarWidth > 0 && (
+                  <div 
+                    className="absolute top-0 bottom-0 bg-[var(--color-success-soft)] opacity-10 border-l border-r border-[var(--color-success)] border-dashed"
+                    style={{ left: `${zone.solarLeft}%`, width: `${zone.solarWidth}%` }}
+                  >
+                    {zone.solarWidth > 5 && (
+                      <div className="absolute top-2 left-2 text-[10px] font-bold text-[var(--color-success)] uppercase tracking-widest opacity-60">Solar</div>
+                    )}
+                  </div>
+                )}
+                
+                {zone.peakWidth > 0 && (
+                  <div 
+                    className="absolute top-0 bottom-0 bg-[var(--color-warning-soft)] opacity-10 border-l border-[var(--color-warning)] border-dashed"
+                    style={{ left: `${zone.peakLeft}%`, width: `${zone.peakWidth}%` }}
+                  >
+                    {zone.peakWidth > 5 && (
+                      <div className="absolute top-2 left-2 text-[10px] font-bold text-[var(--color-warning)] uppercase tracking-widest opacity-60">Peak</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
 
             <div 
               className="absolute top-0 bottom-0 w-px bg-[var(--color-primary)] z-10"
-              style={{ left: `${currentPos}%` }}
+              style={{ left: `${currentPos}%`, display: currentPos > 0 && currentPos < 100 ? 'block' : 'none' }}
             >
               <div className="absolute -top-3 -left-1.5 w-3 h-3 rounded-full bg-[var(--color-primary)] shadow-sm" />
             </div>
@@ -90,7 +145,6 @@ export function ScheduleGantt({ machines, jobs, isOptimized, showBaseline, selec
 
           {machines.map((machine) => {
             const machineJobs = jobs.filter(j => j.machineId === machine.id);
-            if (machineJobs.length === 0) return null;
 
             return (
               <div key={machine.id} className="flex items-center relative z-10">
@@ -99,12 +153,12 @@ export function ScheduleGantt({ machines, jobs, isOptimized, showBaseline, selec
                   <p className="text-xs text-[var(--color-text-muted)] font-normal font-mono">{machine.type} • {machine.power_kw}kW</p>
                 </div>
                 
-                <div className="flex-1 h-[40px] bg-[rgba(255,255,255,0.2)] rounded-[var(--radius-sm)] relative border border-[rgba(255,255,255,0.4)]">
-                  {[6, 8, 10, 12, 14, 16, 18, 20, 22].map((hour) => (
+                <div className="flex-1 h-[40px] bg-[rgba(255,255,255,0.2)] rounded-[var(--radius-sm)] relative border border-[rgba(255,255,255,0.4)] overflow-hidden">
+                  {labels.map((item) => (
                     <div 
-                      key={hour} 
+                      key={item.mins} 
                       className="absolute top-0 bottom-0 w-px bg-[rgba(255,255,255,0.3)]"
-                      style={{ left: `${getPositionPercent(hour * 60)}%` }}
+                      style={{ left: `${getPositionPercent(item.mins)}%` }}
                     />
                   ))}
 
@@ -122,18 +176,18 @@ export function ScheduleGantt({ machines, jobs, isOptimized, showBaseline, selec
                       bgColor = 'bg-[rgba(150,150,150,0.5)]';
                       borderColor = 'border-gray-500';
                       textColor = 'text-gray-800';
-                    } else if (job.energy_type === 'energy') {
-                      bgColor = 'bg-[var(--color-warning-soft)]';
-                      borderColor = 'border-[var(--color-warning)]';
-                      textColor = 'text-[var(--color-warning)]';
+                    } else if (job.energy_type === 'peak' || job.energy_type === 'energy') {
+                      bgColor = 'bg-amber-500/20';
+                      borderColor = 'border-amber-500';
+                      textColor = 'text-amber-500';
                     } else if (job.energy_type === 'solar') {
-                      bgColor = 'bg-[var(--color-success-soft)]';
-                      borderColor = 'border-[var(--color-success)]';
-                      textColor = 'text-[var(--color-success)]';
+                      bgColor = 'bg-green-500/20';
+                      borderColor = 'border-green-500';
+                      textColor = 'text-green-500';
                     } else {
-                      bgColor = 'bg-[rgba(255,255,255,0.6)]';
-                      borderColor = 'border-[var(--color-text-muted)]';
-                      textColor = 'text-[var(--color-text-secondary)]';
+                      bgColor = 'bg-gray-500/20';
+                      borderColor = 'border-gray-400';
+                      textColor = 'text-gray-400';
                     }
 
                     const isSelected = selectedJobId === job.id;
@@ -141,7 +195,7 @@ export function ScheduleGantt({ machines, jobs, isOptimized, showBaseline, selec
                     return (
                       <div key={job.id}>
                         {/* Ghost Baseline */}
-                        {isOptimized && showBaseline && (job.baseline_start !== job.optimized_start) && (
+                        {isOptimized && showBaseline && (job.baseline_start !== job.optimized_start) && baseWidth > 0 && (
                           <div 
                             className="absolute border-2 border-dashed border-gray-400 bg-transparent opacity-40 pointer-events-none transition-all duration-500"
                             style={{ left: `${baseLeft}%`, width: `${baseWidth}%`, top: '5px', height: '28px', borderRadius: '6px' }}
@@ -149,25 +203,27 @@ export function ScheduleGantt({ machines, jobs, isOptimized, showBaseline, selec
                         )}
                         
                         {/* Actual Job Block */}
-                        <div 
-                          className={cn(
-                            "absolute border flex items-center justify-center cursor-pointer transition-all duration-500 overflow-hidden",
-                            bgColor, borderColor,
-                            isSelected ? "ring-2 ring-offset-2 ring-[var(--color-primary)] scale-[1.02] shadow-lg z-20 border-[var(--color-primary)]" : "hover:shadow-md z-10 hover:brightness-95"
-                          )}
-                          style={{ left: `${left}%`, width: `${width}%`, top: '5px', height: '28px', borderRadius: '6px' }}
-                          onClick={() => onJobClick(job.id)}
-                          onMouseEnter={(e) => {
-                            setHoveredJob(job.id);
-                            setTooltipPos({ x: e.clientX, y: e.clientY });
-                          }}
-                          onMouseMove={(e) => setTooltipPos({ x: e.clientX, y: e.clientY })}
-                          onMouseLeave={() => setHoveredJob(null)}
-                        >
-                          <span className={cn("font-mono text-xs font-bold truncate px-1", textColor, isSelected && "text-[var(--color-primary)]")}>
-                            {job.locked ? '🔒 ' : ''}{job.name}
-                          </span>
-                        </div>
+                        {width > 0 && (
+                          <div 
+                            className={cn(
+                              "absolute border flex items-center justify-center cursor-pointer transition-all duration-500 overflow-hidden",
+                              bgColor, borderColor,
+                              isSelected ? "ring-2 ring-offset-2 ring-[var(--color-primary)] scale-[1.02] shadow-lg z-20 border-[var(--color-primary)]" : "hover:shadow-md z-10 hover:brightness-95"
+                            )}
+                            style={{ left: `${left}%`, width: `${width}%`, top: '5px', height: '28px', borderRadius: '6px' }}
+                            onClick={() => onJobClick(job.id)}
+                            onMouseEnter={(e) => {
+                              setHoveredJob(job.id);
+                              setTooltipPos({ x: e.clientX, y: e.clientY });
+                            }}
+                            onMouseMove={(e) => setTooltipPos({ x: e.clientX, y: e.clientY })}
+                            onMouseLeave={() => setHoveredJob(null)}
+                          >
+                            <span className={cn("font-mono text-xs font-bold truncate px-1", textColor, isSelected && "text-[var(--color-primary)]")}>
+                              {job.locked ? '🔒 ' : ''}{job.name}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -189,15 +245,18 @@ export function ScheduleGantt({ machines, jobs, isOptimized, showBaseline, selec
             if (!job) return null;
             const start = isOptimized ? job.optimized_start : job.baseline_start;
             const end = isOptimized ? job.optimized_end : job.baseline_end;
-            const formatTime = (t: number) => `${Math.floor(t).toString().padStart(2, '0')}:${(t % 1 === 0.5 ? '30' : '00')}`;
+            const formatTimeInfo = (t: number) => {
+              const d = new Date(t * 60000);
+              return `${d.getMonth()+1}/${d.getDate()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+            };
             
             return (
-              <div className="space-y-1">
+              <div className="space-y-1 min-w-[200px]">
                 <p className="font-bold text-[var(--color-primary)] font-mono text-sm">{job.name}</p>
                 <div className="flex gap-4 text-xs">
                   <div className="flex flex-col">
                     <span className="text-[var(--color-text-muted)]">Time</span>
-                    <span className="font-mono text-[var(--color-text-primary)]">{formatTime(start)} - {formatTime(end)}</span>
+                    <span className="font-mono text-[var(--color-text-primary)]">{formatTimeInfo(start)} - {formatTimeInfo(end)}</span>
                   </div>
                   <div className="flex flex-col">
                     <span className="text-[var(--color-text-muted)]">Status</span>
@@ -208,7 +267,7 @@ export function ScheduleGantt({ machines, jobs, isOptimized, showBaseline, selec
                 </div>
                 {isOptimized && job.baseline_start !== job.optimized_start && (
                   <p className="text-[10px] text-[var(--color-text-muted)] pt-1 border-t border-gray-200 mt-1">
-                    Moved from {formatTime(job.baseline_start)}-{formatTime(job.baseline_end)}
+                    Moved from {formatTimeInfo(job.baseline_start)} - {formatTimeInfo(job.baseline_end)}
                   </p>
                 )}
               </div>

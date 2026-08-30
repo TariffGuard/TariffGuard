@@ -13,7 +13,7 @@ import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Legend
 } from 'recharts';
 
-const savingsTrendData = [
+const fallbackSavingsTrendData = [
   { date: '01 Aug', savings: 18000, cumulative: 18000 },
   { date: '02 Aug', savings: 22000, cumulative: 40000 },
   { date: '03 Aug', savings: 19500, cumulative: 59500 },
@@ -37,11 +37,45 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [trendData, setTrendData] = useState<any[]>(fallbackSavingsTrendData);
 
   const loadStats = async () => {
     try {
       const data = await fetchApi('/api/meter-readings/stats/1');
       setStats(data);
+      
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 14);
+      
+      const readings = await fetchApi(`/api/meter-readings?factory_id=1&limit=5000&start_date=${startDate.toISOString()}&end_date=${endDate.toISOString()}`);
+      
+      if (readings && readings.length > 0) {
+        const daily: Record<string, { total_kwh: number, solar_kwh: number }> = {};
+        readings.forEach((r: any) => {
+          const d = new Date(r.timestamp);
+          const dateKey = `${d.getDate().toString().padStart(2, '0')} ${d.toLocaleString('default', { month: 'short' })}`;
+          if (!daily[dateKey]) daily[dateKey] = { total_kwh: 0, solar_kwh: 0 };
+          daily[dateKey].total_kwh += (r.kwh || 0);
+          daily[dateKey].solar_kwh += (r.solar_kwh || 0);
+        });
+
+        const sortedKeys = Object.keys(daily).sort((a, b) => {
+           return new Date(a + ' ' + endDate.getFullYear()).getTime() - new Date(b + ' ' + endDate.getFullYear()).getTime();
+        });
+
+        let cumulative = 0;
+        const newTrendData = sortedKeys.map(date => {
+          const { total_kwh, solar_kwh } = daily[date];
+          const savings = Math.round(solar_kwh * 28.5 + (total_kwh * 0.05 * 10));
+          cumulative += savings;
+          return { date, savings, cumulative };
+        });
+        
+        if (newTrendData.length > 0) {
+          setTrendData(newTrendData);
+        }
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to load report stats');
     } finally {
@@ -283,7 +317,7 @@ export default function ReportsPage() {
           </div>
           <div className="flex-1 w-full min-h-0 print:h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={savingsTrendData} margin={{ top: 20, right: 0, left: 10, bottom: 0 }}>
+              <ComposedChart data={trendData} margin={{ top: 20, right: 0, left: 10, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.4)" />
                 <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--color-text-muted)', fontFamily: 'monospace' }} dy={10} />
                 <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--color-text-muted)', fontFamily: 'monospace' }} tickFormatter={(value) => `Rs.${value/1000}k`} />

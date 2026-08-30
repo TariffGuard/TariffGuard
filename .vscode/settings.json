@@ -1,0 +1,7 @@
+{
+  "css.lint.unknownAtRules": "ignore",
+  "python.defaultInterpreterPath": "c:\\Users\\P\\tarrifGuard\\TariffGuard\\backend\\venv\\Scripts\\python.exe",
+  "python.analysis.extraPaths": [
+    "c:\\Users\\P\\tarrifGuard\\TariffGuard\\backend"
+  ]
+}

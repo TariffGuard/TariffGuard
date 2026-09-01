@@ -1,1 +1,0 @@
-FastAPI + Uvicorn server, SQLAlchemy ORM with MySQL driver (with SQLite fallback when DATABASE_URL does not start with `mysql`), Pydantic v2 schemas, pydantic-settings for configuration, SHA-256 password hashing with random salt, and a static frontend served under `/static`.

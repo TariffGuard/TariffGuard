@@ -1,1 +1,0 @@
-Run the app via `uvicorn main:app --reload` (or the provided Docker image). Database schema is created automatically on startup through the `init_db()` call registered on the `startup` event. Seed initial data by executing `python seed.py`. Tests live under `tests/` and can be run with pytest (`test_health.py`, `test_complete.py`, plus `test_auth.py` at the module root).

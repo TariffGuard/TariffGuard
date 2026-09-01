@@ -1,1 +1,0 @@
-FastAPI-based REST backend for the TariffGuard energy and production optimization platform, exposing CRUD APIs for factories, machines, tariffs, meter readings, alerts, users, and optimization endpoints backed by SQLAlchemy.

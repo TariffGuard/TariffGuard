@@ -1,1 +1,0 @@
-Orchestrates the TariffGuard energy and production optimization platform by composing a FastAPI backend, a Next.js dashboard frontend, and a shared MySQL database via Docker Compose.

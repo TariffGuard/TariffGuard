@@ -1,2 +1,0 @@
-- All cross-service communication goes through the REST API under the `/api/*` namespace, as enumerated in README.md and mapped in FRONTEND_BACKEND_MAPPING.md.
-- Service configuration is externalized via environment variables (DATABASE_URL, ENVIRONMENT, DEBUG, ALCHEMY_KEY, QWEN_API_KEY) consumed from `.env.example` and injected by docker-compose.

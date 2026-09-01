@@ -1,1 +1,0 @@
-Next.js 16 client-side dashboard for an AI-powered energy and production optimization platform, providing machine monitoring, cost analysis, scheduling, and reporting views.

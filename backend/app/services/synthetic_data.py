@@ -25,44 +25,72 @@ from app.services.weather_service import WeatherService
 logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------
-# Machine catalogue — representative small textile unit
+# Machine catalogue — representative small textile unit in Faisalabad
+# Based on typical Pakistani SME textile factory equipment
 # ------------------------------------------------------------------
 MACHINE_CATALOGUE = [
-    {"name": "Dyeing Machine 01", "machine_type": "Dyeing", "power_kw": 45,
-     "min_run_minutes": 120, "setup_minutes": 30, "shiftable": True,
-     "priority": 1, "available_from": "08:00", "available_to": "22:00"},
-    {"name": "Dyeing Machine 02", "machine_type": "Dyeing", "power_kw": 45,
-     "min_run_minutes": 120, "setup_minutes": 30, "shiftable": True,
-     "priority": 1, "available_from": "08:00", "available_to": "22:00"},
-    {"name": "Spinning Machine 01", "machine_type": "Spinning", "power_kw": 30,
-     "min_run_minutes": 60, "setup_minutes": 15, "shiftable": True,
-     "priority": 2, "available_from": "08:00", "available_to": "22:00"},
-    {"name": "Spinning Machine 02", "machine_type": "Spinning", "power_kw": 30,
-     "min_run_minutes": 60, "setup_minutes": 15, "shiftable": True,
-     "priority": 2, "available_from": "08:00", "available_to": "22:00"},
-    {"name": "Weaving Machine 01", "machine_type": "Weaving", "power_kw": 25,
-     "min_run_minutes": 90, "setup_minutes": 20, "shiftable": False,
-     "priority": 1, "available_from": "08:00", "available_to": "22:00"},
-    {"name": "Weaving Machine 02", "machine_type": "Weaving", "power_kw": 25,
-     "min_run_minutes": 90, "setup_minutes": 20, "shiftable": False,
-     "priority": 1, "available_from": "08:00", "available_to": "22:00"},
-    {"name": "Finishing Machine 01", "machine_type": "Finishing", "power_kw": 20,
-     "min_run_minutes": 45, "setup_minutes": 10, "shiftable": True,
-     "priority": 3, "available_from": "08:00", "available_to": "22:00"},
-    {"name": "Packaging Machine 01", "machine_type": "Packaging", "power_kw": 15,
-     "min_run_minutes": 30, "setup_minutes": 5, "shiftable": True,
-     "priority": 3, "available_from": "08:00", "available_to": "22:00"},
-    {"name": "Knitting Machine 01", "machine_type": "Knitting", "power_kw": 22,
-     "min_run_minutes": 90, "setup_minutes": 20, "shiftable": True,
-     "priority": 2, "available_from": "08:00", "available_to": "22:00"},
-    {"name": "Bleaching Machine 01", "machine_type": "Bleaching", "power_kw": 35,
-     "min_run_minutes": 60, "setup_minutes": 15, "shiftable": True,
-     "priority": 1, "available_from": "09:00", "available_to": "20:00"},
+    # Dyeing — high energy, shiftable (batch process)
+    {"name": "Thenardier Jet Dyeing TD-1", "machine_type": "Dyeing",
+     "power_kw": 35, "min_run_minutes": 120, "setup_minutes": 30,
+     "shiftable": True, "priority": 1, "available_from": "08:00", "available_to": "22:00",
+     "status": "running", "manufacturer": "Thies GmbH (Germany)", "model_name": "Airflow / Super Slubline"},
+    {"name": "Fong's Circular Dyeing CD-2", "machine_type": "Dyeing",
+     "power_kw": 30, "min_run_minutes": 120, "setup_minutes": 30,
+     "shiftable": True, "priority": 1, "available_from": "08:00", "available_to": "22:00",
+     "status": "running", "manufacturer": "Fong's Industries (HK)", "model_name": "FC-Jet"},
+    # Spinning — medium energy, shiftable
+    {"name": "Lakshmi Ring Frame RF-01", "machine_type": "Spinning",
+     "power_kw": 22, "min_run_minutes": 60, "setup_minutes": 15,
+     "shiftable": True, "priority": 2, "available_from": "08:00", "available_to": "22:00",
+     "status": "running", "manufacturer": "Lakshmi Machine Works (India)", "model_name": "LR60/3 AXIAL"},
+    {"name": "Lakshmi Ring Frame RF-02", "machine_type": "Spinning",
+     "power_kw": 22, "min_run_minutes": 60, "setup_minutes": 15,
+     "shiftable": True, "priority": 2, "available_from": "08:00", "available_to": "22:00",
+     "status": "idle", "manufacturer": "Lakshmi Machine Works (India)", "model_name": "LR60/3 AXIAL"},
+    # Weaving — high energy, NOT shiftable (continuous process)
+    {"name": "Sulzer Projectile Loom PL-01", "machine_type": "Weaving",
+     "power_kw": 18, "min_run_minutes": 90, "setup_minutes": 20,
+     "shiftable": False, "priority": 1, "available_from": "08:00", "available_to": "22:00",
+     "status": "running", "manufacturer": "Sulzer Textil (Switzerland)", "model_name": "P7300"},
+    {"name": "Toyota Air-Jet Loom AJ-02", "machine_type": "Weaving",
+     "power_kw": 25, "min_run_minutes": 90, "setup_minutes": 20,
+     "shiftable": False, "priority": 1, "available_from": "08:00", "available_to": "22:00",
+     "status": "running", "manufacturer": "Toyota Industries (Japan)", "model_name": "JAT710"},
+    # Finishing — medium energy, shiftable
+    {"name": "Monforts Stenter ST-01", "machine_type": "Finishing",
+     "power_kw": 15, "min_run_minutes": 45, "setup_minutes": 10,
+     "shiftable": True, "priority": 3, "available_from": "08:00", "available_to": "22:00",
+     "status": "running", "manufacturer": "Monforts (Germany)", "model_name": "Montex 6500"},
+    # Packaging — low energy, highly shiftable
+    {"name": "Packaging Line PK-01", "machine_type": "Packaging",
+     "power_kw": 5, "min_run_minutes": 30, "setup_minutes": 5,
+     "shiftable": True, "priority": 3, "available_from": "08:00", "available_to": "22:00",
+     "status": "running", "manufacturer": "BVM (UK)", "model_name": "Compact 500S"},
+    # Knitting — medium energy, shiftable
+    {"name": "Mayer Circular Knit CK-01", "machine_type": "Knitting",
+     "power_kw": 12, "min_run_minutes": 90, "setup_minutes": 20,
+     "shiftable": True, "priority": 2, "available_from": "08:00", "available_to": "22:00",
+     "status": "running", "manufacturer": "Mayer & Cie (Germany)", "model_name": "Relanit 3.2 HS"},
+    # Bleaching — high energy, shiftable (batch chemical process)
+    {"name": "Kusters Bleaching Range BR-01", "machine_type": "Bleaching",
+     "power_kw": 28, "min_run_minutes": 60, "setup_minutes": 15,
+     "shiftable": True, "priority": 1, "available_from": "09:00", "available_to": "20:00",
+     "status": "maintenance", "manufacturer": "Kusters (Germany)", "model_name": "S-VAT"},
+    # Winding — medium energy, shiftable
+    {"name": "Schlafhorst Autoconer WN-01", "machine_type": "Winding",
+     "power_kw": 18, "min_run_minutes": 45, "setup_minutes": 10,
+     "shiftable": True, "priority": 2, "available_from": "08:00", "available_to": "22:00",
+     "status": "running", "manufacturer": "Schlafhorst (Germany)", "model_name": "Autoconer X6"},
+    # Compressor — utility, not shiftable, always needed
+    {"name": "Atlas Copco Compressor CP-01", "machine_type": "Compressor",
+     "power_kw": 20, "min_run_minutes": 60, "setup_minutes": 0,
+     "shiftable": False, "priority": 1, "available_from": "07:00", "available_to": "23:00",
+     "status": "running", "manufacturer": "Atlas Copco (Sweden)", "model_name": "GA 22+ VSD"},
 ]
 
 # Process types for order generation
 PROCESS_TYPES = ["Dyeing", "Spinning", "Weaving", "Finishing", "Packaging",
-                 "Knitting", "Bleaching"]
+                 "Knitting", "Bleaching", "Winding"]
 
 # Machine type → compatible machine indices (0-based into MACHINE_CATALOGUE)
 MACHINE_TYPE_MAP: Dict[str, List[int]] = {}
@@ -148,7 +176,21 @@ class SyntheticDataGenerator:
     def _create_machines(self, factory_id: int) -> List[Machine]:
         machines = []
         for spec in MACHINE_CATALOGUE:
-            m = Machine(factory_id=factory_id, **spec)
+            m = Machine(
+                factory_id=factory_id,
+                name=spec["name"],
+                machine_type=spec["machine_type"],
+                power_kw=spec["power_kw"],
+                min_run_minutes=spec.get("min_run_minutes", 60),
+                setup_minutes=spec.get("setup_minutes", 0),
+                shiftable=spec.get("shiftable", True),
+                priority=spec.get("priority", 1),
+                available_from=spec.get("available_from", "08:00"),
+                available_to=spec.get("available_to", "22:00"),
+                status=spec.get("status", "running"),
+                manufacturer=spec.get("manufacturer"),
+                model_name=spec.get("model_name"),
+            )
             self.db.add(m)
             machines.append(m)
         self.db.commit()

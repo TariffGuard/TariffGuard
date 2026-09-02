@@ -2,13 +2,13 @@
 import { useState, useEffect } from 'react';
 import { GlassPanel } from '@/components/ui/glass_panel';
 import { ScheduleGantt, Job } from '@/components/charts/schedule_gantt';
-import { mockMachines } from '@/lib/mock_data';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { fetchApi } from '@/lib/api';
+import { fetchApi, aiApi, optimizeApi, orderApi } from '@/lib/api';
 import { ChevronDown, ArrowRight, Lock, Play, RotateCcw, Sparkles, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/auth_context';
+import { MarkdownText } from '@/components/ui/markdown_text';
 
 
 
@@ -37,7 +37,7 @@ export default function ScheduleOptimizerPage() {
         const mappedMachines = machinesData.map((m: any) => ({
           id: Number(m.id),
           name: m.name,
-          type: m.machine_type || m.type,
+          machine_type: m.machine_type || m.type,
           power_kw: m.power_kw,
           status: m.status || 'running'
         }));
@@ -53,11 +53,13 @@ export default function ScheduleOptimizerPage() {
   }, []);
   
   const [metrics, setMetrics] = useState({
-    baselineCost: 15200,
-    optimizedCost: 12450,
-    savingsAmt: 2750,
-    savingsPct: 18
+    baselineCost: 0,
+    optimizedCost: 0,
+    savingsAmt: 0,
+    savingsPct: 0
   });
+  const [aiExplanation, setAiExplanation] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
 
   const handleOptimize = async () => {
     setIsOptimizing(true);
@@ -82,7 +84,7 @@ export default function ScheduleOptimizerPage() {
       const startIso = startDate.toISOString();
       const endIso = endDate.toISOString();
       
-      const data = await fetchApi(`/api/optimize/compare/1?start_time=${encodeURIComponent(startIso)}&end_time=${encodeURIComponent(endIso)}`, { method: 'POST' });
+      const data = await optimizeApi.compare(1, startIso, endIso);
       
       if (!data.schedule || data.schedule.length === 0) {
         setJobs([]);
@@ -125,6 +127,7 @@ export default function ScheduleOptimizerPage() {
 
         return {
           id: optJob.order_no,
+          order_id: Number(optJob.order_id),
           machineId: Number(optJob.machine_id),
           name: optJob.order_no,
           baseline_start: baseStartMins,
@@ -146,6 +149,18 @@ export default function ScheduleOptimizerPage() {
         savingsPct: data.savings.percentage || 0
       });
       setIsOptimized(true);
+
+      // Fetch AI explanation
+      setAiLoading(true);
+      try {
+        const explanation = await aiApi.explainComparison(1, startIso, endIso);
+        setAiExplanation(explanation.ai_explanation);
+      } catch (err) {
+        console.error('AI explanation failed:', err);
+        setAiExplanation(null);
+      } finally {
+        setAiLoading(false);
+      }
     } catch (err: any) {
       console.error(err);
       setError(err.message || 'Failed to optimize schedule');
@@ -159,15 +174,27 @@ export default function ScheduleOptimizerPage() {
     setShowBaseline(false);
     setJobs(initialFetchedJobs);
     setError(null);
+    setAiExplanation(null);
   };
 
-  const handleLockSelected = () => {
+  const handleLockSelected = async () => {
     if (!selectedJobId) return;
-    setJobs(prev => prev.map(job => 
-      job.id === selectedJobId 
-        ? { ...job, locked: true, energy_type: 'locked' } 
-        : job
+    const job = jobs.find(j => j.id === selectedJobId);
+    if (!job || !job.order_id) return;
+
+    // Update UI immediately
+    setJobs(prev => prev.map(j => 
+      j.id === selectedJobId 
+        ? { ...j, locked: true, energy_type: 'locked' as const } 
+        : j
     ));
+
+    // Persist lock to backend
+    try {
+      await orderApi.update(job.order_id, { locked: true });
+    } catch (err) {
+      console.error('Failed to persist lock:', err);
+    }
   };
 
   const formatTime = (mins: number) => {
@@ -235,7 +262,7 @@ export default function ScheduleOptimizerPage() {
                   (!selectedJobId) ? "opacity-50 border-gray-300 text-gray-400" : 
                   (role === 'supervisor' || role === 'Supervisor') ? "opacity-50 cursor-not-allowed border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-transparent" : "border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary-light)]"
                 )}
-                title={(role === 'supervisor' || role === 'Supervisor') ? "You don't have permission to lock jobs" : undefined}
+                title={(role === 'supervisor' || role === 'Supervisor') ? "You don't have permission to lock jobs" : "Lock selected job and re-optimize"}
                 onClick={handleLockSelected}
               >
                 <Lock className="w-4 h-4" /> Lock Selected
@@ -381,11 +408,15 @@ export default function ScheduleOptimizerPage() {
             <h3 className="font-semibold text-[var(--color-primary)] mb-2 flex items-center gap-2">
               <Sparkles className="w-4 h-4" /> AI Insights
             </h3>
-            <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
-              The optimizer shifted energy-intensive spinning tasks to the solar generation window (11:00 - 15:00), while moving non-critical weaving orders away from the 18:00-22:00 peak tariff period. 
-              <br/><br/>
-              Max demand is projected to stay below the <span className="font-mono font-bold">700kW</span> threshold.
-            </p>
+            {aiLoading ? (
+              <p className="text-sm text-[var(--color-text-muted)] italic">Generating explanation...</p>
+            ) : aiExplanation ? (
+              <MarkdownText text={aiExplanation} className="text-sm text-[var(--color-text-secondary)] leading-relaxed" />
+            ) : (
+              <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
+                Run optimization to see AI-generated insights explaining schedule changes, cost savings, and demand risk.
+              </p>
+            )}
           </div>
           
         </div>

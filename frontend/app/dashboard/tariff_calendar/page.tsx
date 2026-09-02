@@ -238,7 +238,9 @@ export default function TariffCalendarPage() {
                   })}
                 </div>
                 <div className="text-xs font-semibold text-[var(--color-text-primary)]">{day}</div>
-                <div className="font-mono text-[10px] text-[var(--color-text-muted)]">Oct {14 + i}</div>
+                <div className="font-mono text-[10px] text-[var(--color-text-muted)]">
+                  {new Date(new Date().setDate(new Date().getDate() - (new Date().getDay() === 0 ? 6 : new Date().getDay() - 1) + i)).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                </div>
               </div>
             );
           })}

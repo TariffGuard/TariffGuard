@@ -2,11 +2,12 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { LayoutDashboard, CalendarClock, Server, Bell, CalendarDays, FileBarChart, Settings, Calculator, Activity, MessageCircle } from 'lucide-react';
+import { LayoutDashboard, CalendarClock, Server, Bell, CalendarDays, FileBarChart, Settings, Calculator, Activity, MessageCircle, Package } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { useAuth } from '@/context/auth_context';
 import { useState, useEffect } from 'react';
-import { fetchApi } from '@/lib/api';
+import { fetchApi, tariffApi } from '@/lib/api';
+import { TariffPeriod } from '@/types';
 
 import { LucideIcon } from 'lucide-react';
 
@@ -14,6 +15,7 @@ const navItems: Array<{name: string, href: string, icon: LucideIcon, badge?: num
   { name: 'Overview', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Live Monitoring', href: '/dashboard/live_monitoring', icon: Activity },
   { name: 'Schedule Optimizer', href: '/dashboard/schedule_optimizer', icon: CalendarClock },
+  { name: 'Production Orders', href: '/dashboard/production_orders', icon: Package },
   { name: 'Tariff Calendar', href: '/dashboard/tariff_calendar', icon: CalendarDays },
   { name: 'Alerts & Anomalies', href: '/dashboard/alerts', icon: Bell },
   { name: 'Reports', href: '/dashboard/reports', icon: FileBarChart },
@@ -23,16 +25,50 @@ const navItems: Array<{name: string, href: string, icon: LucideIcon, badge?: num
   { name: 'Settings', href: '/dashboard/settings', icon: Settings },
 ];
 
+function parseTime(t: string) {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + (m || 0);
+}
+
+function getCurrentTariff(tariffs: TariffPeriod[]) {
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  
+  for (const t of tariffs) {
+    const start = parseTime(t.start_time);
+    let end = parseTime(t.end_time);
+    if (end <= start) end += 24 * 60;
+    let test = currentMinutes;
+    if (test < start) test += 24 * 60;
+    if (test >= start && test < end) {
+      return t;
+    }
+  }
+  return null;
+}
+
 export function Sidebar() {
   const pathname = usePathname();
   const { role, user } = useAuth();
   const [unresolvedCount, setUnresolvedCount] = useState(0);
+  const [currentTariff, setCurrentTariff] = useState<TariffPeriod | null>(null);
 
   useEffect(() => {
     fetchApi('/api/alerts/stats/1')
       .then(data => setUnresolvedCount(data.unresolved || 0))
       .catch(console.error);
   }, [pathname]);
+
+  useEffect(() => {
+    tariffApi.list()
+      .then((tariffs) => {
+        const active = getCurrentTariff(tariffs);
+        setCurrentTariff(active);
+      })
+      .catch(console.error);
+  }, []);
+
+  const isPeak = currentTariff?.period_name.toLowerCase().includes('peak') && !currentTariff?.period_name.toLowerCase().includes('off');
 
   return (
     <aside className="w-[260px] glass-panel h-full flex flex-col m-4 rounded-[var(--radius-lg)] border-r border-[rgba(255,255,255,0.65)] shrink-0 overflow-hidden">
@@ -77,8 +113,12 @@ export function Sidebar() {
         <div className="bg-[var(--color-primary-light)] p-3 rounded-[var(--radius-md)] mb-4">
           <p className="text-[11px] uppercase tracking-wider text-[var(--color-primary)] font-semibold mb-1">Current Period</p>
           <div className="flex justify-between items-end">
-            <p className="font-semibold text-sm text-[var(--color-text-primary)]">Off-Peak</p>
-            <p className="font-mono text-xs font-medium text-[var(--color-success)]">25 PKR/kWh</p>
+            <p className="font-semibold text-sm text-[var(--color-text-primary)]">
+              {currentTariff ? currentTariff.period_name : '—'}
+            </p>
+            <p className={cn("font-mono text-xs font-medium", isPeak ? 'text-[var(--color-warning)]' : 'text-[var(--color-success)]')}>
+              {currentTariff ? `${currentTariff.rate_pkr_per_kwh} PKR/kWh` : 'No tariff'}
+            </p>
           </div>
         </div>
 

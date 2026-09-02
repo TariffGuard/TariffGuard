@@ -5,7 +5,7 @@ Provides solar, load, and demand-risk forecasts to the frontend and optimizer.
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Optional
 
 from app.core.database import get_db
@@ -13,6 +13,7 @@ from app.models.factory import Factory
 from app.services.solar_estimator import SolarEstimator
 from app.services.load_forecaster import LoadForecaster
 from app.services.demand_risk import DemandRiskCalculator
+from app.services.weather_service import WeatherService
 
 router = APIRouter(prefix="/api/forecast", tags=["forecast"])
 
@@ -192,3 +193,124 @@ def demand_risk_forecast(
     risk_result["source"] = source
 
     return risk_result
+
+
+@router.get("/weather/{factory_id}")
+def weather_forecast(
+    factory_id: int,
+    days: int = 7,
+    db: Session = Depends(get_db),
+):
+    """
+    Return a 7-day (configurable) daily weather forecast for solar planning.
+
+    Fetches or generates weather data, then aggregates into daily summaries
+    showing temperature range, cloud cover, precipitation, and estimated
+    solar generation with a quality rating (good/moderate/poor).
+    """
+    factory = db.query(Factory).filter(Factory.id == factory_id).first()
+    if not factory:
+        raise HTTPException(status_code=404, detail="Factory not found")
+
+    today = date.today()
+    end_date = today + timedelta(days=days - 1)
+
+    # Fetch/generate weather data for the forecast period
+    svc = WeatherService(db, factory_id)
+    svc.fetch_and_store(today, end_date)
+
+    # Query the stored hourly readings
+    start_dt = datetime.combine(today, datetime.min.time())
+    end_dt = datetime.combine(end_date, datetime.min.time()) + timedelta(hours=23)
+    readings = svc.get_readings(start=start_dt, end=end_dt)
+
+    if not readings:
+        raise HTTPException(status_code=500, detail="Failed to generate weather data")
+
+    # Aggregate into daily summaries
+    daily: dict = {}
+    for r in readings:
+        day_key = r.timestamp.date().isoformat()
+        if day_key not in daily:
+            daily[day_key] = {
+                "temps": [],
+                "clouds": [],
+                "precip": 0.0,
+                "humidity": [],
+                "wind": [],
+                "radiation": [],
+            }
+        d = daily[day_key]
+        if r.temperature_c is not None:
+            d["temps"].append(r.temperature_c)
+        if r.cloud_cover_pct is not None:
+            d["clouds"].append(r.cloud_cover_pct)
+        d["precip"] += (r.precipitation_mm or 0)
+        if r.humidity_pct is not None:
+            d["humidity"].append(r.humidity_pct)
+        if r.wind_speed_kmh is not None:
+            d["wind"].append(r.wind_speed_kmh)
+        if r.shortwave_radiation_wm2 is not None:
+            d["radiation"].append(r.shortwave_radiation_wm2)
+
+    # Estimate solar for the period
+    solar_capacity = factory.solar_capacity_kw or 0
+    try:
+        solar_est = SolarEstimator(db, factory_id)
+        solar_hourly = solar_est.estimate_period(start_dt, end_dt)
+        # Aggregate solar by day
+        solar_daily: dict = {}
+        for s in solar_hourly:
+            day_key = s["timestamp"].date().isoformat() if hasattr(s["timestamp"], "date") else str(s["timestamp"])[:10]
+            solar_daily.setdefault(day_key, 0.0)
+            solar_daily[day_key] += s["solar_kwh"]
+    except ValueError:
+        solar_daily = {}
+
+    # Build response
+    forecast_days = []
+    for day_key in sorted(daily.keys()):
+        d = daily[day_key]
+        temps = d["temps"]
+        clouds = d["clouds"]
+        avg_cloud = sum(clouds) / len(clouds) if clouds else 0
+        estimated_solar = solar_daily.get(day_key, 0.0)
+
+        # Solar quality rating based on cloud cover
+        if avg_cloud < 30:
+            solar_quality = "good"
+        elif avg_cloud < 60:
+            solar_quality = "moderate"
+        else:
+            solar_quality = "poor"
+
+        # Determine weather condition
+        precip = round(d["precip"], 1)
+        if precip > 5:
+            condition = "rainy"
+        elif avg_cloud > 65:
+            condition = "cloudy"
+        elif avg_cloud > 35:
+            condition = "partly_cloudy"
+        else:
+            condition = "sunny"
+
+        forecast_days.append({
+            "date": day_key,
+            "temp_high": round(max(temps), 1) if temps else None,
+            "temp_low": round(min(temps), 1) if temps else None,
+            "avg_cloud_cover": round(avg_cloud, 1),
+            "precipitation_mm": precip,
+            "avg_humidity": round(sum(d["humidity"]) / len(d["humidity"]), 1) if d["humidity"] else None,
+            "avg_wind_speed": round(sum(d["wind"]) / len(d["wind"]), 1) if d["wind"] else None,
+            "estimated_solar_kwh": round(estimated_solar, 2),
+            "solar_quality": solar_quality,
+            "condition": condition,
+        })
+
+    return {
+        "factory_id": factory_id,
+        "forecast_days": len(forecast_days),
+        "solar_capacity_kw": solar_capacity,
+        "daily": forecast_days,
+    }

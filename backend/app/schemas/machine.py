@@ -12,6 +12,9 @@ class MachineBase(BaseModel):
     priority: int = 1
     available_from: str = "08:00"
     available_to: str = "22:00"
+    status: str = "running"
+    manufacturer: Optional[str] = None
+    model_name: Optional[str] = None
     maintenance_windows: Optional[List[str]] = None
 
 class MachineCreate(MachineBase):

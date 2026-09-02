@@ -91,3 +91,4 @@ build/
 *.njsproj
 *.sln
 *.sw?
+.qoder

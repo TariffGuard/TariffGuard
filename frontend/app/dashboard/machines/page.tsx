@@ -11,25 +11,33 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, 
   Tooltip as RechartsTooltip, ResponsiveContainer, Cell
 } from 'recharts';
-import { fetchApi } from '@/lib/api';
+import { machineApi, meterApi } from '@/lib/api';
 import { useAuth } from '@/context/auth_context';
+import { Machine } from '@/types';
 
-const energyData = [
-  { id: 'M-01', value: 850 },
-  { id: 'M-02', value: 620 },
-  { id: 'M-03', value: 410 },
-  { id: 'M-04', value: 780 },
-  { id: 'M-05', value: 150 },
-  { id: 'M-06', value: 320 },
-  { id: 'M-07', value: 1550 },
-  { id: 'M-08', value: 480 },
-];
+interface MachineRow {
+  id: string;
+  dbId: number;
+  name: string;
+  type: string;
+  power: string;
+  powerKw: number;
+  status: string;
+  shiftable: boolean;
+  avail: string;
+  minRunTime: string;
+  setupTime: string;
+  manufacturer?: string | null;
+  model_name?: string | null;
+}
 
 export default function MachinesPage() {
   const { role } = useAuth();
-  const [machines, setMachines] = useState<any[]>([]);
+  const [machines, setMachines] = useState<MachineRow[]>([]);
+  const [rawMachines, setRawMachines] = useState<Machine[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedMachine, setSelectedMachine] = useState<any>(null);
+  const [selectedMachine, setSelectedMachine] = useState<MachineRow | null>(null);
+  const [totalKwh, setTotalKwh] = useState(0);
   
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -49,24 +57,33 @@ export default function MachinesPage() {
 
   const loadMachines = async () => {
     try {
-      const data = await fetchApi('/api/machines/?factory_id=1');
-      const mappedData = data.map((m: any) => ({
+      setLoading(true);
+      const [data, stats] = await Promise.all([
+        machineApi.list(1),
+        meterApi.stats(1).catch(() => null)
+      ]);
+      
+      setRawMachines(data);
+      const mappedData: MachineRow[] = data.map((m: Machine) => ({
         id: `M-${String(m.id).padStart(2, '0')}`,
         dbId: m.id,
         name: m.name,
         type: m.machine_type,
         power: `${m.power_kw} kW`,
-        status: m.status || 'Running',
+        powerKw: m.power_kw,
+        status: m.status || 'running',
         shiftable: m.shiftable,
-        avail: `${m.available_from}—${m.available_to}`,
+        avail: `${m.available_from}\u2014${m.available_to}`,
         minRunTime: `${m.min_run_minutes / 60} hrs`,
         setupTime: `${m.setup_minutes} mins`,
+        manufacturer: m.manufacturer,
+        model_name: m.model_name,
       }));
       setMachines(mappedData);
       if (mappedData.length > 0) {
-        // preserve selection if possible
-        setSelectedMachine((prev: any) => prev ? (mappedData.find((m: any) => m.dbId === prev.dbId) || mappedData[0]) : mappedData[0]);
+        setSelectedMachine((prev) => prev ? (mappedData.find((m) => m.dbId === prev.dbId) || mappedData[0]) : mappedData[0]);
       }
+      setTotalKwh(stats?.total_kwh || 0);
     } catch (error) {
       console.error('Failed to fetch machines:', error);
     } finally {
@@ -83,18 +100,18 @@ export default function MachinesPage() {
     setIsSubmitting(true);
     setMessage(null);
     try {
-      await fetchApi('/api/machines/', {
-        method: 'POST',
-        body: JSON.stringify({
-          factory_id: 1,
-          name: formData.name,
-          machine_type: formData.machine_type,
-          power_kw: Number(formData.power_kw),
-          priority: Number(formData.priority),
-          shiftable: formData.shiftable,
-          available_from: formData.available_from,
-          available_to: formData.available_to,
-        })
+      await machineApi.create({
+        factory_id: 1,
+        name: formData.name,
+        machine_type: formData.machine_type,
+        power_kw: Number(formData.power_kw),
+        min_run_minutes: 60,
+        setup_minutes: 0,
+        priority: Number(formData.priority),
+        shiftable: formData.shiftable,
+        available_from: formData.available_from,
+        available_to: formData.available_to,
+        status: formData.status.toLowerCase() as any,
       });
       setMessage({ type: 'success', text: 'Machine added successfully.' });
       setIsAddModalOpen(false);
@@ -108,6 +125,17 @@ export default function MachinesPage() {
       setIsSubmitting(false);
     }
   };
+
+  // Real summary stats from machine list
+  const runningCount = machines.filter((m) => m.status === 'running').length;
+  const idleCount = machines.filter((m) => m.status === 'idle' || m.status === 'offline').length;
+  const maintenanceCount = machines.filter((m) => m.status === 'maintenance').length;
+
+  // Energy consumption chart data from real machine power ratings
+  const energyData = machines
+    .map((m) => ({ id: m.id, name: m.name, value: Math.round(m.powerKw) }))
+    .sort((a, b) => b.value - a.value);
+  const maxPowerMachine = energyData[0];
 
   if (loading) {
     return (
@@ -148,21 +176,21 @@ export default function MachinesPage() {
             <CheckCircle2 className="w-4 h-4 text-[var(--color-success)]" />
             <p className="text-sm font-medium text-[var(--color-text-secondary)]">Running Machines</p>
           </div>
-          <p className="text-3xl font-bold font-mono">5</p>
+          <p className="text-3xl font-bold font-mono">{runningCount}</p>
         </div>
         <div className="glass-card p-5 rounded-[var(--radius-md)] border-t-4 border-t-gray-400">
           <div className="flex items-center gap-3 mb-2">
             <Clock className="w-4 h-4 text-gray-500" />
-            <p className="text-sm font-medium text-[var(--color-text-secondary)]">Idle Machines</p>
+            <p className="text-sm font-medium text-[var(--color-text-secondary)]">Idle / Offline Machines</p>
           </div>
-          <p className="text-3xl font-bold font-mono">2</p>
+          <p className="text-3xl font-bold font-mono">{idleCount}</p>
         </div>
         <div className="glass-card p-5 rounded-[var(--radius-md)] border-t-4 border-t-[var(--color-warning)]">
           <div className="flex items-center gap-3 mb-2">
             <AlertTriangle className="w-4 h-4 text-[var(--color-warning)]" />
             <p className="text-sm font-medium text-[var(--color-text-secondary)]">Maintenance</p>
           </div>
-          <p className="text-3xl font-bold font-mono">1</p>
+          <p className="text-3xl font-bold font-mono">{maintenanceCount}</p>
         </div>
       </div>
 
@@ -207,13 +235,43 @@ export default function MachinesPage() {
             </div>
           </div>
 
-          {/* Column 2: Availability */}
+          {/* Column 2: Equipment Details */}
+          <div>
+            <h4 className="text-sm font-semibold text-[var(--color-text-secondary)] mb-4 flex items-center gap-2 uppercase tracking-wider">
+              <Settings className="w-4 h-4" /> Equipment Details
+            </h4>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center border-b border-[rgba(255,255,255,0.2)] pb-2">
+                <span className="text-sm text-[var(--color-text-secondary)]">Manufacturer</span>
+                <span className="text-sm font-medium text-right max-w-[60%]">{selectedMachine.manufacturer || '\u2014'}</span>
+              </div>
+              <div className="flex justify-between items-center border-b border-[rgba(255,255,255,0.2)] pb-2">
+                <span className="text-sm text-[var(--color-text-secondary)]">Model</span>
+                <span className="text-sm font-mono text-[var(--color-text-muted)]">{selectedMachine.model_name || '\u2014'}</span>
+              </div>
+              <div className="flex justify-between items-center border-b border-[rgba(255,255,255,0.2)] pb-2">
+                <span className="text-sm text-[var(--color-text-secondary)]">Status</span>
+                <span className={cn(
+                  "text-xs font-bold px-2 py-0.5 rounded-full uppercase",
+                  selectedMachine.status === 'running' ? "bg-[var(--color-success-soft)] text-[var(--color-success)]" :
+                  selectedMachine.status === 'maintenance' ? "bg-[var(--color-warning-soft)] text-[var(--color-warning)]" :
+                  "bg-[rgba(150,150,150,0.2)] text-[var(--color-text-muted)]"
+                )}>{selectedMachine.status}</span>
+              </div>
+              <div className="flex justify-between items-center pt-1">
+                <span className="text-sm text-[var(--color-text-secondary)]">Priority</span>
+                <span className="text-sm font-mono">{rawMachines.find((m) => m.id === selectedMachine.dbId)?.priority ?? '\u2014'}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Column 3: Availability & Optimizer */}
           <div>
             <h4 className="text-sm font-semibold text-[var(--color-text-secondary)] mb-4 flex items-center gap-2 uppercase tracking-wider">
               <Clock className="w-4 h-4" /> Availability Window
             </h4>
             <p className="text-sm font-mono font-medium mb-4">{selectedMachine.avail}</p>
-            
+                      
             <div className="h-6 w-full flex bg-[rgba(255,255,255,0.4)] rounded overflow-hidden">
               <div className="h-full bg-[rgba(150,150,150,0.2)]" style={{ flex: 8 }}></div>
               <div className="h-full bg-[var(--color-primary-soft)]" style={{ flex: 14 }}></div>
@@ -225,27 +283,10 @@ export default function MachinesPage() {
               <span>22:00</span>
               <span>24:00</span>
             </div>
-          </div>
-
-          {/* Column 3: Maintenance */}
-          <div>
-            <h4 className="text-sm font-semibold text-[var(--color-text-secondary)] mb-4 flex items-center gap-2 uppercase tracking-wider">
-              <Settings className="w-4 h-4" /> Maintenance
-            </h4>
-            <div className="space-y-4">
-              <div>
-                <p className="text-xs text-[var(--color-text-muted)] mb-1">Last Maintenance</p>
-                <p className="text-sm font-mono">05 Aug 2026</p>
-              </div>
-              <div>
-                <p className="text-xs text-[var(--color-text-muted)] mb-1">Next Scheduled</p>
-                <p className="text-sm font-mono text-[var(--color-text-primary)]">20 Aug 2026</p>
-                <span className="inline-block mt-1 bg-[var(--color-success-soft)] text-[var(--color-success)] text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">On Schedule</span>
-              </div>
-              <div>
-                <p className="text-xs text-[var(--color-text-muted)] mb-1">Total Running Hours</p>
-                <p className="text-sm font-mono font-bold">12,450</p>
-              </div>
+          
+            <div className="mt-6 pt-4 border-t border-[rgba(255,255,255,0.2)]">
+              <p className="text-xs text-[var(--color-text-muted)] mb-1">Total Factory Consumption</p>
+              <p className="text-sm font-mono font-bold">{totalKwh.toLocaleString()} kWh</p>
             </div>
           </div>
         </div>
@@ -272,17 +313,18 @@ export default function MachinesPage() {
           <table className="w-full text-left text-sm border-collapse">
             <thead className="bg-[rgba(255,255,255,0.3)]">
               <tr className="text-[var(--color-text-secondary)] border-b border-[rgba(255,255,255,0.4)]">
-                <th className="font-medium p-3">Machine ID</th>
+                <th className="font-medium p-3">ID</th>
+                <th className="font-medium p-3">Machine</th>
                 <th className="font-medium p-3">Type</th>
-                <th className="font-medium p-3 text-right">Power Rating</th>
+                <th className="font-medium p-3">Manufacturer / Model</th>
+                <th className="font-medium p-3 text-right">Power</th>
                 <th className="font-medium p-3">Status</th>
                 <th className="font-medium p-3 text-center">Shiftable</th>
-                <th className="font-medium p-3 text-center">Availability</th>
                 <th className="font-medium p-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {machines.map((m: any, i: number) => (
+              {machines.map((m) => (
                 <tr 
                   key={m.id} 
                   className={cn(
@@ -293,14 +335,24 @@ export default function MachinesPage() {
                 >
                   <td className="p-3 font-mono font-bold text-[var(--color-primary)]">{m.id}</td>
                   <td className="p-3 font-medium text-[var(--color-text-primary)]">{m.name}</td>
+                  <td className="p-3 text-sm text-[var(--color-text-secondary)]">{m.type}</td>
+                  <td className="p-3">
+                    <div className="text-sm text-[var(--color-text-secondary)]">
+                      <span>{m.manufacturer || '\u2014'}</span>
+                      {m.model_name && <span className="block text-[10px] font-mono text-[var(--color-text-muted)]">{m.model_name}</span>}
+                    </div>
+                  </td>
                   <td className="p-3 text-right font-mono font-semibold">{m.power}</td>
                   <td className="p-3">
                     <div className="flex items-center gap-2">
                       <span className={cn(
                         "w-2 h-2 rounded-full",
-                        m.status === 'Running' ? 'bg-[var(--color-success)]' : m.status === 'Maintenance' ? 'bg-[var(--color-warning)]' : 'bg-gray-400'
+                        m.status === 'running' ? 'bg-[var(--color-success)]' : m.status === 'maintenance' ? 'bg-[var(--color-warning)]' : 'bg-gray-400'
                       )}></span>
-                      <span className="text-xs font-medium">{m.status}</span>
+                      <span className={cn(
+                        "text-xs font-bold uppercase",
+                        m.status === 'running' ? "text-[var(--color-success)]" : m.status === 'maintenance' ? "text-[var(--color-warning)]" : "text-[var(--color-text-muted)]"
+                      )}>{m.status}</span>
                     </div>
                   </td>
                   <td className="p-3 text-center">
@@ -310,7 +362,6 @@ export default function MachinesPage() {
                       <span className="bg-[rgba(150,150,150,0.2)] text-[var(--color-text-muted)] text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">No</span>
                     )}
                   </td>
-                  <td className="p-3 text-center font-mono text-xs text-[var(--color-text-secondary)]">{m.avail}</td>
                   <td className="p-3 text-right">
                     <div className="flex items-center justify-end gap-2 text-[var(--color-text-muted)]">
                       <button className="hover:text-[var(--color-primary)] p-1 transition-colors"><Edit2 className="w-4 h-4" /></button>
@@ -326,7 +377,7 @@ export default function MachinesPage() {
 
       {/* Section 4: Energy Consumption Chart */}
       <GlassPanel className="p-6 rounded-[var(--radius-lg)] flex flex-col h-[400px]">
-        <h3 className="font-semibold text-[var(--color-primary)] mb-6">Energy Consumption by Machine (Last 7 Days)</h3>
+        <h3 className="font-semibold text-[var(--color-primary)] mb-6">Machine Power Rating Distribution</h3>
         <div className="flex-1 w-full min-h-0 relative">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={energyData} margin={{ top: 20, right: 0, left: -20, bottom: 0 }}>
@@ -336,23 +387,26 @@ export default function MachinesPage() {
               <RechartsTooltip 
                 cursor={{ fill: 'rgba(255,255,255,0.2)' }}
                 contentStyle={{ backgroundColor: 'rgba(255,255,255,0.9)', backdropFilter: 'blur(10px)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.5)', fontFamily: 'monospace', fontSize: '12px' }}
-                formatter={(value: any) => [`${value} kWh`, 'Consumption']}
+                formatter={(value: any, name: any, props: any) => [`${value} kW`, props.payload.name]}
               />
               <Bar dataKey="value" radius={[4, 4, 0, 0]} barSize={40}>
                 {energyData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.id === 'M-07' ? 'var(--color-warning)' : 'var(--color-primary-soft)'} />
+                  <Cell key={`cell-${index}`} fill={entry.id === maxPowerMachine?.id ? 'var(--color-warning)' : 'var(--color-primary-soft)'} />
                 ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
-        <div className="mt-4 p-4 bg-[rgba(255,255,255,0.4)] rounded border border-[rgba(255,255,255,0.6)] flex gap-3">
-          <AlertTriangle className="w-5 h-5 text-[var(--color-warning)] shrink-0" />
-          <p className="text-sm text-[var(--color-text-primary)]">
-            <span className="font-mono font-bold">M-07 Boiler</span> consumes the most energy (<span className="font-mono">1,550 kWh/week</span>). 
-            Consider checking for heat loss or upgrading insulation. Potential savings: <span className="font-mono text-[var(--color-success)] font-bold">Rs. 12,000/month</span>.
-          </p>
-        </div>
+        {maxPowerMachine && (
+          <div className="mt-4 p-4 bg-[rgba(255,255,255,0.4)] rounded border border-[rgba(255,255,255,0.6)] flex gap-3">
+            <AlertTriangle className="w-5 h-5 text-[var(--color-warning)] shrink-0" />
+            <p className="text-sm text-[var(--color-text-primary)]">
+              <span className="font-mono font-bold">{maxPowerMachine.id} {maxPowerMachine.name}</span> has the highest power rating (
+              <span className="font-mono">{maxPowerMachine.value} kW</span>). 
+              Large loads like this have the biggest impact on peak demand and should be prioritized for off-peak scheduling.
+            </p>
+          </div>
+        )}
       </GlassPanel>
 
       {/* Add Machine Modal */}
@@ -393,10 +447,13 @@ export default function MachinesPage() {
                     <option value="Weaving">Weaving</option>
                     <option value="Finishing">Finishing</option>
                     <option value="Spinning">Spinning</option>
+                    <option value="Knitting">Knitting</option>
+                    <option value="Bleaching">Bleaching</option>
+                    <option value="Winding">Winding</option>
                     <option value="Packaging">Packaging</option>
+                    <option value="Compressor">Compressor</option>
                     <option value="Cutting">Cutting</option>
                     <option value="Boiler">Boiler</option>
-                    <option value="Compressor">Compressor</option>
                   </select>
                 </div>
 

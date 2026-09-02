@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Send, Bot, User, Zap, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { fetchApi } from '@/lib/api';
+import { MarkdownText } from '@/components/ui/markdown_text';
 
 type Message = {
   id: string;
@@ -56,15 +57,14 @@ export default function ChatPage() {
         content: aiText,
       };
       setMessages(prev => [...prev, aiResponse]);
-    } catch (error) {
+    } catch (error: any) {
       console.error("AI API Error:", error);
-      // Fallback to mock response if API fails
-      const fallbackResponse: Message = {
+      const errorResponse: Message = {
         id: (Date.now() + 1).toString(),
         role: 'ai',
-        content: "I'm TariffGuard AI. (Fallback mode) I can help you understand your energy schedules, tariffs, and anomalies.",
+        content: error?.message || "Sorry, I couldn't reach the AI service. Please check that the backend is running and the Qwen API key is configured.",
       };
-      setMessages(prev => [...prev, fallbackResponse]);
+      setMessages(prev => [...prev, errorResponse]);
     } finally {
       setIsLoading(false);
     }
@@ -100,7 +100,11 @@ export default function ChatPage() {
                   ? "bg-[var(--color-primary)] text-white rounded-[20px] rounded-tr-[4px]" 
                   : "glass-card text-[var(--color-text-primary)] rounded-[20px] rounded-tl-[4px] border border-[rgba(255,255,255,0.6)]"
               )}>
-                {msg.content}
+                {msg.role === 'ai' ? (
+                  <MarkdownText text={msg.content} />
+                ) : (
+                  msg.content
+                )}
               </div>
             </div>
           ))}

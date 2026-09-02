@@ -7,8 +7,10 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
-import { fetchApi } from '@/lib/api';
+import { fetchApi, tariffApi } from '@/lib/api';
 import { useAuth } from '@/context/auth_context';
+import { TariffPeriod } from '@/types';
+import Link from 'next/link';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -34,6 +36,7 @@ export default function SettingsPage() {
   });
 
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
+  const [tariffs, setTariffs] = useState<TariffPeriod[]>([]);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [inviteData, setInviteData] = useState({
@@ -66,6 +69,7 @@ export default function SettingsPage() {
       if (!isSupervisor) {
         await loadUsers();
       }
+      await loadTariffs();
     } catch (err) {
       console.error(err);
       setMessage({ type: 'error', text: 'Failed to load factory details.' });
@@ -80,6 +84,16 @@ export default function SettingsPage() {
       setTeamMembers(usersData);
     } catch (err) {
       console.error('Failed to load users', err);
+    }
+  };
+
+  const loadTariffs = async () => {
+    try {
+      const data = await tariffApi.list();
+      data.sort((a, b) => a.start_time.localeCompare(b.start_time));
+      setTariffs(data);
+    } catch (err) {
+      console.error('Failed to load tariffs', err);
     }
   };
 
@@ -298,18 +312,19 @@ export default function SettingsPage() {
             <Zap className="w-5 h-5 text-[var(--color-success)]" />
             <h3 className="font-semibold text-lg text-[var(--color-primary)]">Tariff Configuration</h3>
           </div>
-          <Button 
-            variant="outline" 
-            onClick={() => alert('Add Period coming soon (Demo only - use Tariff Calendar page)')}
-            disabled={isSupervisor}
-            className={cn("h-9 px-4 text-sm transition-colors",
-              isSupervisor ? "opacity-50 cursor-not-allowed border-[var(--color-primary)] text-[var(--color-primary)] bg-transparent hover:bg-transparent" : "border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary-light)] bg-transparent"
-            )}
-            title={isSupervisor ? "You don't have permission to add periods" : "Coming soon"}
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Add Period
-          </Button>
+          <Link href="/dashboard/tariff_calendar">
+            <Button 
+              variant="outline" 
+              disabled={isSupervisor}
+              className={cn("h-9 px-4 text-sm transition-colors",
+                isSupervisor ? "opacity-50 cursor-not-allowed border-[var(--color-primary)] text-[var(--color-primary)] bg-transparent hover:bg-transparent" : "border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary-light)] bg-transparent"
+              )}
+              title={isSupervisor ? "You don't have permission to add periods" : "Manage tariffs in Tariff Calendar"}
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add Period
+            </Button>
+          </Link>
         </div>
         
         <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[rgba(255,255,255,0.4)]">
@@ -325,29 +340,35 @@ export default function SettingsPage() {
               </tr>
             </thead>
             <tbody>
-              {[
-                { name: 'Off-Peak', start: '00:00', end: '18:00', rate: '28.50', color: 'text-[var(--color-success)]' },
-                { name: 'Peak', start: '18:00', end: '22:00', rate: '42.80', color: 'text-[var(--color-warning)]' },
-                { name: 'Off-Peak', start: '22:00', end: '24:00', rate: '28.50', color: 'text-[var(--color-success)]' }
-              ].map((row, i) => (
-                <tr key={i} className="border-b border-[rgba(255,255,255,0.2)] hover:bg-[rgba(255,255,255,0.2)]">
-                  <td className="p-3 font-medium text-[var(--color-text-primary)]">{row.name}</td>
-                  <td className="p-3 text-center font-mono text-xs text-[var(--color-text-secondary)]">{row.start}</td>
-                  <td className="p-3 text-center font-mono text-xs text-[var(--color-text-secondary)]">{row.end}</td>
-                  <td className="p-3 text-right font-mono font-medium"><span className={row.color}>{row.rate}</span></td>
-                  <td className="p-3 text-center">
-                    <input type="checkbox" disabled={isSupervisor} defaultChecked className="w-4 h-4 rounded text-[var(--color-primary)] focus:ring-[var(--color-primary)] accent-[var(--color-primary)] disabled:opacity-50" />
-                  </td>
-                  <td className="p-3 text-right">
-                    {!isSupervisor && (
-                      <div className="flex items-center justify-end gap-2 text-[var(--color-text-muted)]">
-                        <button className="hover:text-[var(--color-primary)] p-1 transition-colors"><Edit2 className="w-4 h-4" /></button>
-                        <button className="hover:text-red-500 p-1 transition-colors"><Trash2 className="w-4 h-4" /></button>
-                      </div>
-                    )}
+              {tariffs.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-6 text-center text-[var(--color-text-muted)] text-sm italic">
+                    No tariff periods configured. Add one from the Tariff Calendar page.
                   </td>
                 </tr>
-              ))}
+              ) : tariffs.map((row) => {
+                const isPeak = row.period_name.toLowerCase().includes('peak') && !row.period_name.toLowerCase().includes('off');
+                const color = isPeak ? 'text-[var(--color-warning)]' : 'text-[var(--color-success)]';
+                return (
+                  <tr key={row.id} className="border-b border-[rgba(255,255,255,0.2)] hover:bg-[rgba(255,255,255,0.2)]">
+                    <td className="p-3 font-medium text-[var(--color-text-primary)]">{row.period_name}</td>
+                    <td className="p-3 text-center font-mono text-xs text-[var(--color-text-secondary)]">{row.start_time}</td>
+                    <td className="p-3 text-center font-mono text-xs text-[var(--color-text-secondary)]">{row.end_time === '00:00' ? '24:00' : row.end_time}</td>
+                    <td className="p-3 text-right font-mono font-medium"><span className={color}>{row.rate_pkr_per_kwh.toFixed(2)}</span></td>
+                    <td className="p-3 text-center">
+                      <input type="checkbox" disabled={isSupervisor} defaultChecked className="w-4 h-4 rounded text-[var(--color-primary)] focus:ring-[var(--color-primary)] accent-[var(--color-primary)] disabled:opacity-50" />
+                    </td>
+                    <td className="p-3 text-right">
+                      {!isSupervisor && (
+                        <div className="flex items-center justify-end gap-2 text-[var(--color-text-muted)]">
+                          <Link href="/dashboard/tariff_calendar" className="hover:text-[var(--color-primary)] p-1 transition-colors"><Edit2 className="w-4 h-4" /></Link>
+                          <Link href="/dashboard/tariff_calendar" className="hover:text-red-500 p-1 transition-colors"><Trash2 className="w-4 h-4" /></Link>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

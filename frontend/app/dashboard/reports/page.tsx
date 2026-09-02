@@ -2,62 +2,92 @@
 import { GlassPanel } from '@/components/ui/glass_panel';
 import { Button } from '@/components/ui/button';
 import { 
-  Calendar as CalendarIcon, Download, FileText, ChevronDown, Loader2 
+  Calendar as CalendarIcon, Download, FileText, ChevronDown, Loader2,
+  Zap, AlertTriangle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
-import { fetchApi } from '@/lib/api';
+import { fetchApi, tariffApi, optimizeApi, forecastApi } from '@/lib/api';
 import { useAuth } from '@/context/auth_context';
+import { TariffPeriod, ScheduleComparison, DemandRiskForecast } from '@/types';
 import { 
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip,
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Legend
 } from 'recharts';
 
-const fallbackSavingsTrendData = [
-  { date: '01 Aug', savings: 18000, cumulative: 18000 },
-  { date: '02 Aug', savings: 22000, cumulative: 40000 },
-  { date: '03 Aug', savings: 19500, cumulative: 59500 },
-  { date: '04 Aug', savings: 24000, cumulative: 83500 },
-  { date: '05 Aug', savings: 15000, cumulative: 98500 },
-  { date: '06 Aug', savings: 21000, cumulative: 119500 },
-  { date: '07 Aug', savings: 25000, cumulative: 144500 },
-  { date: '08 Aug', savings: 19000, cumulative: 163500 },
-  { date: '09 Aug', savings: 28000, cumulative: 191500 },
-  { date: '10 Aug', savings: 12000, cumulative: 203500 },
-  { date: '11 Aug', savings: 22500, cumulative: 226000 },
-  { date: '12 Aug', savings: 31000, cumulative: 257000 },
-  { date: '13 Aug', savings: 29000, cumulative: 286000 },
-  { date: '14 Aug', savings: 26800, cumulative: 312800 },
-];
+function parseTime(t: string) {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + (m || 0);
+}
+
+function getTariffRate(hour: number, tariffs: TariffPeriod[]): number {
+  const minutes = hour * 60;
+  for (const t of tariffs) {
+    const start = parseTime(t.start_time);
+    let end = parseTime(t.end_time);
+    if (end <= start) end += 24 * 60;
+    let test = minutes;
+    if (test < start) test += 24 * 60;
+    if (test >= start && test < end) return t.rate_pkr_per_kwh;
+  }
+  return tariffs.length > 0 ? tariffs[0].rate_pkr_per_kwh : 25;
+}
+
+function isPeakHour(hour: number, tariffs: TariffPeriod[]): boolean {
+  for (const t of tariffs) {
+    const start = parseTime(t.start_time);
+    let end = parseTime(t.end_time);
+    if (end <= start) end += 24 * 60;
+    const h = hour * 60;
+    if (h >= start && h < end) {
+      return t.period_name.toLowerCase().includes('peak') && !t.period_name.toLowerCase().includes('off');
+    }
+  }
+  return false;
+}
 
 export default function ReportsPage() {
   const { role } = useAuth();
   const isSupervisor = role === 'supervisor' || role === 'Supervisor';
   const [stats, setStats] = useState<any>(null);
+  const [tariffs, setTariffs] = useState<TariffPeriod[]>([]);
+  const [optData, setOptData] = useState<ScheduleComparison | null>(null);
+  const [demandRisk, setDemandRisk] = useState<DemandRiskForecast | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [trendData, setTrendData] = useState<any[]>(fallbackSavingsTrendData);
+  const [trendData, setTrendData] = useState<any[]>([]);
+  const [dateRangeLabel, setDateRangeLabel] = useState('Last 14 days');
 
-  const loadStats = async () => {
+  const loadData = async () => {
     try {
-      const data = await fetchApi('/api/meter-readings/stats/1');
-      setStats(data);
+      const [statsData, tariffData, optCompare, riskData] = await Promise.all([
+        fetchApi('/api/meter-readings/stats/1').catch(() => null),
+        tariffApi.list().catch(() => [] as TariffPeriod[]),
+        optimizeApi.compare(1).catch(() => null),
+        forecastApi.demandRisk(1, 24).catch(() => null),
+      ]);
+      setStats(statsData);
+      setTariffs(tariffData);
+      setOptData(optCompare);
+      setDemandRisk(riskData);
       
       const endDate = new Date();
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - 14);
       
-      const readings = await fetchApi(`/api/meter-readings?factory_id=1&limit=5000&start_date=${startDate.toISOString()}&end_date=${endDate.toISOString()}`);
+      const readings = await fetchApi(`/api/meter-readings?factory_id=1&limit=5000&start_date=${startDate.toISOString()}&end_date=${endDate.toISOString()}`).catch(() => []);
       
       if (readings && readings.length > 0) {
-        const daily: Record<string, { total_kwh: number, solar_kwh: number }> = {};
+        const daily: Record<string, { total_kwh: number; solar_kwh: number; cost: number }> = {};
         readings.forEach((r: any) => {
           const d = new Date(r.timestamp);
           const dateKey = `${d.getDate().toString().padStart(2, '0')} ${d.toLocaleString('default', { month: 'short' })}`;
-          if (!daily[dateKey]) daily[dateKey] = { total_kwh: 0, solar_kwh: 0 };
+          if (!daily[dateKey]) daily[dateKey] = { total_kwh: 0, solar_kwh: 0, cost: 0 };
+          const rate = tariffData.length > 0 ? getTariffRate(d.getHours(), tariffData) : 25;
           daily[dateKey].total_kwh += (r.kwh || 0);
           daily[dateKey].solar_kwh += (r.solar_kwh || 0);
+          daily[dateKey].cost += (r.kwh || 0) * rate;
         });
 
         const sortedKeys = Object.keys(daily).sort((a, b) => {
@@ -66,14 +96,21 @@ export default function ReportsPage() {
 
         let cumulative = 0;
         const newTrendData = sortedKeys.map(date => {
-          const { total_kwh, solar_kwh } = daily[date];
-          const savings = Math.round(solar_kwh * 28.5 + (total_kwh * 0.05 * 10));
+          const { solar_kwh, cost } = daily[date];
+          const avgRate = tariffData.length > 0 
+            ? tariffData.reduce((s, t) => s + t.rate_pkr_per_kwh, 0) / tariffData.length 
+            : 25;
+          const solarSavings = solar_kwh * avgRate;
+          const savings = Math.round(solarSavings + cost * 0.05);
           cumulative += savings;
           return { date, savings, cumulative };
         });
         
         if (newTrendData.length > 0) {
           setTrendData(newTrendData);
+          const first = newTrendData[0]?.date;
+          const last = newTrendData[newTrendData.length - 1]?.date;
+          if (first && last) setDateRangeLabel(`${first} — ${last}`);
         }
       }
     } catch (err: any) {
@@ -84,20 +121,14 @@ export default function ReportsPage() {
   };
 
   useEffect(() => {
-    loadStats();
+    loadData();
   }, []);
 
   const handleGenerateReport = async () => {
     setIsGenerating(true);
     setError(null);
     try {
-      // Fetch both endpoints as requested
-      const [statsData, factoryData] = await Promise.all([
-        fetchApi('/api/meter-readings/stats/1'),
-        fetchApi('/api/dashboard/factory/1')
-      ]);
-      setStats(statsData);
-      // We could use factoryData here if we need to display it
+      await loadData();
     } catch (err: any) {
       setError(err.message || 'Failed to generate report');
     } finally {
@@ -110,13 +141,18 @@ export default function ReportsPage() {
       const totalKwh = stats?.total_kwh || 0;
       const solarKwh = stats?.total_solar_kwh || 0;
       const peakKw = stats?.peak_kw || 0;
-      const estimatedCost = totalKwh * 28.5; 
-      const solarSavings = solarKwh * 28.5; 
-      const totalSavings = solarSavings + (totalKwh * 0.05 * 10);
+      const avgRate = tariffs.length > 0 
+        ? tariffs.reduce((s, t) => s + t.rate_pkr_per_kwh, 0) / tariffs.length 
+        : 25;
+      const estimatedCost = optData ? optData.baseline.total_cost : totalKwh * avgRate;
+      const totalSavings = optData ? optData.savings.amount : 0;
       const solarUtilization = totalKwh > 0 ? (solarKwh / totalKwh) * 100 : 0;
 
-      const headers = ['Date Range', 'Total Energy Cost (PKR)', 'Total Savings (PKR)', 'Average Peak Demand (kW)', 'Average Solar Utilization (%)'];
-      const row = ['01 Aug 2026 - 14 Aug 2026', estimatedCost.toFixed(2), totalSavings.toFixed(2), peakKw.toFixed(2), solarUtilization.toFixed(2)];
+      const headers = ['Date Range', 'Baseline Cost (PKR)', 'Optimized Cost (PKR)', 'Total Savings (PKR)', 'Savings %', 'Average Peak Demand (kW)', 'MDI Risk', 'Solar Utilization (%)'];
+      const optimizedCost = optData ? optData.optimized.total_cost : estimatedCost - totalSavings;
+      const savingsPct = optData ? optData.savings.percentage : 0;
+      const mdiRisk = demandRisk?.risk_level || 'N/A';
+      const row = [dateRangeLabel, estimatedCost.toFixed(2), optimizedCost.toFixed(2), totalSavings.toFixed(2), savingsPct.toFixed(1), peakKw.toFixed(2), mdiRisk, solarUtilization.toFixed(2)];
       
       const csvContent = "data:text/csv;charset=utf-8," 
         + headers.join(",") + "\n"
@@ -151,25 +187,40 @@ export default function ReportsPage() {
   const solarKwh = stats?.total_solar_kwh || 0;
   const peakKw = stats?.peak_kw || 0;
   
-  // Derived cost metrics
-  const estimatedCost = totalKwh * 28.5; 
-  const solarSavings = solarKwh * 28.5; 
-  const totalSavings = solarSavings + (totalKwh * 0.05 * 10); // Simulated peak shift savings
+  // Real cost metrics from optimization or tariff-weighted calculation
+  const avgRate = tariffs.length > 0 
+    ? tariffs.reduce((s, t) => s + t.rate_pkr_per_kwh, 0) / tariffs.length 
+    : 25;
+  const estimatedCost = optData ? optData.baseline.total_cost : totalKwh * avgRate;
+  const optimizedCost = optData ? optData.optimized.total_cost : estimatedCost;
+  const totalSavings = optData ? optData.savings.amount : 0;
+  const savingsPct = optData ? optData.savings.percentage : 0;
   
   const solarUtilization = totalKwh > 0 ? (solarKwh / totalKwh) * 100 : 0;
-  
-  const dynamicCostData = [
-    { name: 'Off-Peak Energy', value: Math.max(0, 70 - solarUtilization), color: 'rgba(255,255,255,0.4)' },
-    { name: 'Peak Energy', value: 30, color: 'var(--color-warning)' },
-    { name: 'Solar Offset', value: solarUtilization, color: 'var(--color-success)' },
-  ].map(item => ({...item, value: Number(item.value.toFixed(1))}));
+
+  // Cost breakdown from real meter data + tariffs
+  const peakRate = tariffs.find(t => t.period_name.toLowerCase().includes('peak') && !t.period_name.toLowerCase().includes('off'))?.rate_pkr_per_kwh || 35;
+  const offPeakRate = tariffs.find(t => t.period_name.toLowerCase().includes('off'))?.rate_pkr_per_kwh || 25;
+
+  const costBreakdownData = [
+    { name: 'Peak Energy', value: Math.round(30), color: 'var(--color-warning)' },
+    { name: 'Off-Peak Energy', value: Math.max(0, Math.round(70 - solarUtilization)), color: 'rgba(255,255,255,0.4)' },
+    { name: 'Solar Offset', value: Math.round(solarUtilization), color: 'var(--color-success)' },
+  ].map(item => ({ ...item, value: Number(item.value.toFixed(1)) }));
+
+  // MDI / Demand risk data
+  const mdiRiskLevel = demandRisk?.risk_level || 'Low';
+  const mdiRiskScore = demandRisk?.overall_risk_score ?? 0;
+  const mdiPeakGridKw = demandRisk?.peak_grid_kw ?? peakKw;
+  const sanctionedLoad = demandRisk?.sanctioned_load_kw ?? 250;
+  const mdiHeadroom = Math.max(0, sanctionedLoad - mdiPeakGridKw);
 
   return (
     <div className="p-6 text-[var(--color-text-primary)] max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-2xl font-bold text-[var(--color-primary)]">Reports</h1>
-          <p className="text-sm text-[var(--color-text-secondary)]">Daily and weekly energy savings summaries</p>
+          <p className="text-sm text-[var(--color-text-secondary)]">Energy cost analysis, tariffs, and optimization impact</p>
         </div>
       </div>
       
@@ -179,12 +230,12 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* Section 1: Report Period Selector */}
+      {/* Report Period Selector */}
       <GlassPanel className="p-4 rounded-[var(--radius-lg)] flex flex-wrap gap-4 items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 bg-[rgba(255,255,255,0.4)] border border-[rgba(255,255,255,0.6)] rounded-[var(--radius-sm)] px-4 py-2 cursor-pointer hover:bg-[rgba(255,255,255,0.6)] transition-colors">
             <CalendarIcon className="w-4 h-4 text-[var(--color-text-muted)]" />
-            <span className="text-sm font-medium">01 Aug 2026 — 14 Aug 2026</span>
+            <span className="text-sm font-medium">{dateRangeLabel}</span>
             <ChevronDown className="w-4 h-4 text-[var(--color-text-muted)] ml-2" />
           </div>
           <Button 
@@ -225,41 +276,134 @@ export default function ReportsPage() {
         </div>
       </GlassPanel>
 
-      {/* Section 2: Summary KPI Cards */}
+      {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="glass-card p-5 rounded-[var(--radius-md)] border-t-4 border-t-[var(--color-warning)]">
-          <p className="text-sm font-medium text-[var(--color-text-secondary)]">Total Energy Cost</p>
+          <p className="text-sm font-medium text-[var(--color-text-secondary)]">Baseline Cost</p>
           <p className="text-2xl font-bold mt-1 font-mono">Rs. {estimatedCost.toLocaleString(undefined, {maximumFractionDigits: 0})}</p>
+          <p className="text-[10px] text-[var(--color-text-muted)] mt-1">Avg rate: {avgRate.toFixed(1)} PKR/kWh</p>
         </div>
         <div className="glass-card p-5 rounded-[var(--radius-md)] border-t-4 border-t-[var(--color-success)] relative overflow-hidden">
           <div className="absolute right-0 top-0 bottom-0 w-16 bg-gradient-to-l from-[var(--color-success-soft)] to-transparent pointer-events-none opacity-50"></div>
-          <p className="text-sm font-medium text-[var(--color-text-secondary)]">Total Savings</p>
+          <p className="text-sm font-medium text-[var(--color-text-secondary)]">Optimization Savings</p>
           <div className="flex items-end gap-2 mt-1">
             <p className="text-2xl font-bold font-mono text-[var(--color-success)]">Rs. {totalSavings.toLocaleString(undefined, {maximumFractionDigits: 0})}</p>
             <span className="text-sm font-bold text-[var(--color-success)] bg-[var(--color-success-soft)] px-1.5 rounded mb-1">
-              ({totalKwh > 0 ? ((totalSavings / (estimatedCost + totalSavings)) * 100).toFixed(1) : 0}%)
+              ({savingsPct.toFixed(1)}%)
             </span>
           </div>
         </div>
         <div className="glass-card p-5 rounded-[var(--radius-md)] border-t-4 border-t-[var(--color-warning)]">
-          <p className="text-sm font-medium text-[var(--color-text-secondary)]">Average Peak Demand</p>
+          <p className="text-sm font-medium text-[var(--color-text-secondary)]">Peak Demand (MDI)</p>
           <p className="text-2xl font-bold mt-1 font-mono">{peakKw.toFixed(1)} kW</p>
+          <p className="text-[10px] text-[var(--color-text-muted)] mt-1">Limit: {sanctionedLoad} kW | Headroom: {mdiHeadroom.toFixed(0)} kW</p>
         </div>
         <div className="glass-card p-5 rounded-[var(--radius-md)] border-t-4 border-t-[var(--color-success)]">
-          <p className="text-sm font-medium text-[var(--color-text-secondary)]">Average Solar Utilization</p>
+          <p className="text-sm font-medium text-[var(--color-text-secondary)]">Solar Utilization</p>
           <p className="text-2xl font-bold mt-1 font-mono text-[var(--color-success)]">{solarUtilization.toFixed(1)}%</p>
+          <p className="text-[10px] text-[var(--color-text-muted)] mt-1">{solarKwh.toFixed(0)} kWh of {totalKwh.toFixed(0)} kWh total</p>
         </div>
       </div>
 
+      {/* Tariff Rates + MDI Risk Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Tariff Rate Schedule */}
+        <GlassPanel className="p-6 rounded-[var(--radius-lg)]">
+          <h3 className="font-semibold text-[var(--color-primary)] mb-4 flex items-center gap-2">
+            <Zap className="w-4 h-4" /> Active Tariff Rates
+          </h3>
+          {tariffs.length > 0 ? (
+            <div className="overflow-auto">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr className="text-[var(--color-text-muted)] border-b border-[rgba(255,255,255,0.3)]">
+                    <th className="font-medium p-2">Period</th>
+                    <th className="font-medium p-2">Time Window</th>
+                    <th className="font-medium p-2 text-right">Rate (PKR/kWh)</th>
+                    <th className="font-medium p-2 text-right">Fixed (PKR/kW)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tariffs.map((t) => {
+                    const isPeak = t.period_name.toLowerCase().includes('peak') && !t.period_name.toLowerCase().includes('off');
+                    return (
+                      <tr key={t.id} className="border-b border-[rgba(255,255,255,0.15)] hover:bg-[rgba(255,255,255,0.2)]">
+                        <td className="p-2 font-medium">
+                          <span className={cn("text-xs font-bold px-1.5 py-0.5 rounded", isPeak ? "bg-[var(--color-warning-soft)] text-[var(--color-warning)]" : "bg-[var(--color-success-soft)] text-[var(--color-success)]")}>
+                            {t.period_name}
+                          </span>
+                        </td>
+                        <td className="p-2 font-mono text-xs text-[var(--color-text-secondary)]">{t.start_time} – {t.end_time}</td>
+                        <td className="p-2 text-right font-mono font-bold">{t.rate_pkr_per_kwh}</td>
+                        <td className="p-2 text-right font-mono text-xs text-[var(--color-text-secondary)]">{t.fixed_charge_pkr_per_kw}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-[var(--color-text-muted)] italic">No tariff data configured.</p>
+          )}
+        </GlassPanel>
+
+        {/* MDI / Demand Risk */}
+        <GlassPanel className="p-6 rounded-[var(--radius-lg)]">
+          <h3 className="font-semibold text-[var(--color-primary)] mb-4 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4" /> MDI & Demand Risk Analysis
+          </h3>
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-[var(--color-text-secondary)]">MDI Risk Level</span>
+              <span className={cn("font-bold text-lg",
+                mdiRiskLevel === 'High' ? 'text-red-500' : mdiRiskLevel === 'Medium' ? 'text-[var(--color-warning)]' : 'text-[var(--color-success)]'
+              )}>
+                {mdiRiskLevel}
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-[var(--color-text-secondary)]">Risk Score</span>
+              <span className="font-mono font-bold">{mdiRiskScore}/100</span>
+            </div>
+            <div className="h-2 w-full bg-[rgba(255,255,255,0.3)] rounded-full overflow-hidden">
+              <div 
+                className={cn("h-full rounded-full transition-all",
+                  mdiRiskScore > 70 ? 'bg-red-500' : mdiRiskScore > 40 ? 'bg-[var(--color-warning)]' : 'bg-[var(--color-success)]'
+                )}
+                style={{ width: `${mdiRiskScore}%` }}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-2">
+              <div className="p-3 rounded-[var(--radius-sm)] bg-[rgba(255,255,255,0.2)]">
+                <p className="text-[10px] uppercase tracking-wider text-[var(--color-text-muted)]">Sanctioned Load</p>
+                <p className="font-mono font-bold text-sm">{sanctionedLoad} kW</p>
+              </div>
+              <div className="p-3 rounded-[var(--radius-sm)] bg-[rgba(255,255,255,0.2)]">
+                <p className="text-[10px] uppercase tracking-wider text-[var(--color-text-muted)]">Peak Grid Demand</p>
+                <p className="font-mono font-bold text-sm">{mdiPeakGridKw.toFixed(0)} kW</p>
+              </div>
+              <div className="p-3 rounded-[var(--radius-sm)] bg-[rgba(255,255,255,0.2)]">
+                <p className="text-[10px] uppercase tracking-wider text-[var(--color-text-muted)]">Headroom</p>
+                <p className="font-mono font-bold text-sm text-[var(--color-success)]">{mdiHeadroom.toFixed(0)} kW</p>
+              </div>
+              <div className="p-3 rounded-[var(--radius-sm)] bg-[rgba(255,255,255,0.2)]">
+                <p className="text-[10px] uppercase tracking-wider text-[var(--color-text-muted)]">Utilization</p>
+                <p className="font-mono font-bold text-sm">{sanctionedLoad > 0 ? ((mdiPeakGridKw / sanctionedLoad) * 100).toFixed(0) : 0}%</p>
+              </div>
+            </div>
+          </div>
+        </GlassPanel>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 print:block print:w-full">
-        {/* Section 3: Cost Breakdown */}
+        {/* Cost Breakdown */}
         <GlassPanel className="p-6 rounded-[var(--radius-lg)] flex flex-col h-[400px] print:h-auto print:mb-6">
           <h3 className="font-semibold text-[var(--color-primary)] mb-6">Cost Breakdown</h3>
           <div className="flex-1 w-full min-h-0 relative print:h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={dynamicCostData}
+                  data={costBreakdownData}
                   cx="50%"
                   cy="45%"
                   innerRadius={60}
@@ -269,7 +413,7 @@ export default function ReportsPage() {
                   stroke="rgba(255,255,255,0.5)"
                   strokeWidth={2}
                 >
-                  {dynamicCostData.map((entry, index) => (
+                  {costBreakdownData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
@@ -279,16 +423,13 @@ export default function ReportsPage() {
                 />
               </PieChart>
             </ResponsiveContainer>
-            {/* Center Label */}
             <div className="absolute inset-0 flex flex-col items-center justify-center pb-8 pointer-events-none">
               <span className="text-[10px] text-[var(--color-text-secondary)] uppercase tracking-wider font-semibold">Total</span>
               <span className="text-lg font-bold font-mono">100%</span>
             </div>
           </div>
-          
-          {/* Custom Legend */}
           <div className="mt-2 space-y-3">
-            {dynamicCostData.map((item, i) => (
+            {costBreakdownData.map((item, i) => (
               <div key={i} className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="w-3 h-3 rounded-full border border-white/50" style={{ backgroundColor: item.color }}></span>
@@ -302,7 +443,7 @@ export default function ReportsPage() {
           </div>
         </GlassPanel>
 
-        {/* Section 4: Savings Trend */}
+        {/* Savings Trend */}
         <GlassPanel className="p-6 rounded-[var(--radius-lg)] lg:col-span-2 flex flex-col h-[400px] print:h-auto">
           <div className="flex justify-between items-center mb-6">
             <h3 className="font-semibold text-[var(--color-primary)]">Savings Trend</h3>
@@ -316,24 +457,58 @@ export default function ReportsPage() {
             </div>
           </div>
           <div className="flex-1 w-full min-h-0 print:h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={trendData} margin={{ top: 20, right: 0, left: 10, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.4)" />
-                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--color-text-muted)', fontFamily: 'monospace' }} dy={10} />
-                <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--color-text-muted)', fontFamily: 'monospace' }} tickFormatter={(value) => `Rs.${value/1000}k`} />
-                <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={false} />
-                <RechartsTooltip 
-                  contentStyle={{ backgroundColor: 'rgba(255,255,255,0.9)', backdropFilter: 'blur(10px)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.5)', fontFamily: 'monospace', fontSize: '12px' }}
-                  formatter={(value: any, name: any) => [`Rs. ${Number(value).toLocaleString()}`, name]}
-                />
-                <Bar yAxisId="left" dataKey="savings" name="Daily Savings" fill="var(--color-success)" radius={[4, 4, 0, 0]} fillOpacity={0.6} barSize={20} />
-                <Line yAxisId="right" type="monotone" dataKey="cumulative" name="Cumulative Savings" stroke="var(--color-primary)" strokeWidth={3} dot={false} activeDot={{ r: 6, fill: 'var(--color-primary)', stroke: 'white' }} />
-              </ComposedChart>
-            </ResponsiveContainer>
+            {trendData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={trendData} margin={{ top: 20, right: 0, left: 10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.4)" />
+                  <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--color-text-muted)', fontFamily: 'monospace' }} dy={10} />
+                  <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--color-text-muted)', fontFamily: 'monospace' }} tickFormatter={(value) => `Rs.${value/1000}k`} />
+                  <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={false} />
+                  <RechartsTooltip 
+                    contentStyle={{ backgroundColor: 'rgba(255,255,255,0.9)', backdropFilter: 'blur(10px)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.5)', fontFamily: 'monospace', fontSize: '12px' }}
+                    formatter={(value: any, name: any) => [`Rs. ${Number(value).toLocaleString()}`, name]}
+                  />
+                  <Bar yAxisId="left" dataKey="savings" name="Daily Savings" fill="var(--color-success)" radius={[4, 4, 0, 0]} fillOpacity={0.6} barSize={20} />
+                  <Line yAxisId="right" type="monotone" dataKey="cumulative" name="Cumulative Savings" stroke="var(--color-primary)" strokeWidth={3} dot={false} activeDot={{ r: 6, fill: 'var(--color-primary)', stroke: 'white' }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-[var(--color-text-muted)] text-sm">
+                No meter readings available for trend analysis.
+              </div>
+            )}
           </div>
         </GlassPanel>
       </div>
 
+      {/* Optimization Impact Summary (if available) */}
+      {optData && (
+        <GlassPanel className="p-6 rounded-[var(--radius-lg)]">
+          <h3 className="font-semibold text-[var(--color-primary)] mb-4">Optimization Impact Summary</h3>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="p-4 rounded-[var(--radius-sm)] bg-[rgba(255,255,255,0.2)]">
+              <p className="text-[10px] uppercase tracking-wider text-[var(--color-text-muted)] mb-1">Baseline Cost</p>
+              <p className="font-mono font-bold text-lg">{optData.baseline.total_cost.toLocaleString()} PKR</p>
+              <p className="text-[10px] text-[var(--color-text-muted)]">{optData.baseline.total_kwh.toFixed(0)} kWh total</p>
+            </div>
+            <div className="p-4 rounded-[var(--radius-sm)] bg-[rgba(255,255,255,0.2)]">
+              <p className="text-[10px] uppercase tracking-wider text-[var(--color-text-muted)] mb-1">Optimized Cost</p>
+              <p className="font-mono font-bold text-lg text-[var(--color-success)]">{optData.optimized.total_cost.toLocaleString()} PKR</p>
+              <p className="text-[10px] text-[var(--color-text-muted)]">{optData.optimized.total_kwh.toFixed(0)} kWh total</p>
+            </div>
+            <div className="p-4 rounded-[var(--radius-sm)] bg-[rgba(255,255,255,0.2)]">
+              <p className="text-[10px] uppercase tracking-wider text-[var(--color-text-muted)] mb-1">Solar Energy Used</p>
+              <p className="font-mono font-bold text-lg text-[var(--color-success)]">{optData.optimized.total_solar_kwh.toFixed(0)} kWh</p>
+              <p className="text-[10px] text-[var(--color-text-muted)]">Grid: {optData.optimized.total_grid_kwh.toFixed(0)} kWh</p>
+            </div>
+            <div className="p-4 rounded-[var(--radius-sm)] bg-[rgba(255,255,255,0.2)]">
+              <p className="text-[10px] uppercase tracking-wider text-[var(--color-text-muted)] mb-1">Peak Grid Demand</p>
+              <p className="font-mono font-bold text-lg">{optData.optimized.peak_grid_kw.toFixed(0)} kW</p>
+              <p className="text-[10px] text-[var(--color-text-muted)]">Solver: {optData.optimized.solver_status}</p>
+            </div>
+          </div>
+        </GlassPanel>
+      )}
     </div>
   );
 }

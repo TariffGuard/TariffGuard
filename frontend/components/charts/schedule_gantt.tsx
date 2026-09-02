@@ -5,6 +5,7 @@ import { useState } from 'react';
 
 export type Job = {
   id: string;
+  order_id?: number;
   machineId: number;
   name: string;
   baseline_start: number;
@@ -150,7 +151,7 @@ export function ScheduleGantt({ machines, jobs, isOptimized, showBaseline, selec
               <div key={machine.id} className="flex items-center relative z-10">
                 <div className="w-40 shrink-0 text-sm font-medium text-[var(--color-text-primary)] truncate pr-4">
                   {machine.name}
-                  <p className="text-xs text-[var(--color-text-muted)] font-normal font-mono">{machine.type} • {machine.power_kw}kW</p>
+                  <p className="text-xs text-[var(--color-text-muted)] font-normal font-mono">{machine.machine_type} • {machine.power_kw}kW</p>
                 </div>
                 
                 <div className="flex-1 h-[40px] bg-[rgba(255,255,255,0.2)] rounded-[var(--radius-sm)] relative border border-[rgba(255,255,255,0.4)] overflow-hidden">

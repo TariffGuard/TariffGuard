@@ -10,7 +10,7 @@ def setup_test_database():
     db = SessionLocal()
     try:
         if not db.query(Factory).first():
-            generator = SyntheticDataGenerator(db)
-            generator.generate(days=14)
+            generator = SyntheticDataGenerator(db, days=14)
+            generator.generate()
     finally:
         db.close()

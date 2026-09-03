@@ -68,18 +68,27 @@ def get_current_user(
     """Dependency to get current user from token with seamless dev/demo fallback"""
     if authorization and authorization.startswith("Bearer "):
         token = authorization.replace("Bearer ", "")
+        
+        # 1. Check in-memory session
         user_id = active_tokens.get(token)
         if user_id:
             user = db.query(User).filter(User.id == user_id).first()
             if user:
                 return user
-    
-    # Fallback to first user in database in development/testing mode
+        
+        # 2. Check demo token
+        if "demo" in token.lower():
+            user = db.query(User).first()
+            if user:
+                return user
+            return User(id=1, username="demo_owner", email="demo@tariffguard.com", role="owner", is_active=True)
+
+    # 3. Fallback to first user in database
     user = db.query(User).first()
     if user:
         return user
     
-    # If no users exist, provide a fallback admin user object
+    # 4. Fallback in-memory user
     return User(
         id=1,
         username="admin",

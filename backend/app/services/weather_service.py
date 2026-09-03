@@ -24,6 +24,7 @@ FAISALABAD_LON = 73.0833
 FAISALABAD_TZ = "Asia/Karachi"
 
 OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 
 HOURLY_PARAMS = [
     "temperature_2m",
@@ -105,16 +106,23 @@ class WeatherService:
         lon: float,
     ) -> Optional[Dict]:
         """
-        Call the Open-Meteo archive API.  Returns a merged dict with
+        Call the Open-Meteo archive or forecast API. Returns a merged dict with
         keys 'time', 'temperature_2m', etc. or None on failure.
         """
         chunks = self._chunk_dates(start_date, end_date)
         merged: Dict = {p: [] for p in HOURLY_PARAMS}
         merged["time"] = []
+        today = date.today()
 
         try:
             with httpx.Client(timeout=30) as client:
                 for chunk_start, chunk_end in chunks:
+                    # Choose forecast API for today/future dates, archive API for past dates
+                    api_url = (
+                        OPEN_METEO_FORECAST_URL
+                        if chunk_end >= today
+                        else OPEN_METEO_ARCHIVE_URL
+                    )
                     params = {
                         "latitude": lat,
                         "longitude": lon,
@@ -123,7 +131,7 @@ class WeatherService:
                         "hourly": ",".join(HOURLY_PARAMS),
                         "timezone": FAISALABAD_TZ,
                     }
-                    resp = client.get(OPEN_METEO_ARCHIVE_URL, params=params)
+                    resp = client.get(api_url, params=params)
                     resp.raise_for_status()
                     data = resp.json()
 

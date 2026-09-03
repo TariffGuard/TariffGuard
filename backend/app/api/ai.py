@@ -4,12 +4,13 @@ Provides natural-language explanations of optimizer results using
 Alibaba Cloud Model Studio (Qwen).
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from typing import Optional
 
 from app.core.database import get_db
+from app.models.factory import Factory
 from app.services.ai_explainer import AIExplainer
 from app.services.optimizer import ScheduleOptimizer
 
@@ -32,9 +33,35 @@ def ai_status():
     }
 
 
+@router.post("/chat/{factory_id}")
+@router.post("/chat")
+def chat_ai(
+    factory_id: int = 1,
+    message: str = Query(..., description="User query for the AI energy advisor"),
+    db: Session = Depends(get_db),
+):
+    """Direct conversational assistant endpoint using Qwen LLM."""
+    explainer = AIExplainer()
+    factory = db.query(Factory).filter(Factory.id == factory_id).first()
+    context_str = (
+        f"Factory: {factory.name if factory else 'Faisalabad Textile Unit'}, "
+        f"Sanctioned Load: {factory.sanctioned_load_kw if factory else 250} kW, "
+        f"Solar: {factory.solar_capacity_kw if factory else 100} kW"
+    )
+    explanation = explainer.chat(user_message=message, context=context_str)
+    return {
+        "factory_id": factory_id,
+        "ai_explanation": explanation["explanation"],
+        "ai_model": explanation["model"],
+        "tokens_used": explanation["tokens_used"],
+        "warning": explanation.get("warning"),
+    }
+
+
 @router.post("/explain/{factory_id}")
 def explain_optimization(
     factory_id: int,
+    message: Optional[str] = None,
     start_time: Optional[datetime] = None,
     end_time: Optional[datetime] = None,
     db: Session = Depends(get_db),
@@ -42,9 +69,30 @@ def explain_optimization(
     """
     Run optimizer comparison (baseline vs optimized) and return a
     plain-language AI explanation of the results.
-
-    If QWEN_API_KEY is not set, returns a rule-based fallback explanation.
+    If 'message' query parameter is provided, handles it as a direct question.
     """
+    explainer = AIExplainer()
+
+    # If the user sent a direct chat message via the chat UI
+    if message:
+        factory = db.query(Factory).filter(Factory.id == factory_id).first()
+        context_str = (
+            f"Factory: {factory.name if factory else 'Faisalabad Textile Unit'}, "
+            f"Sanctioned Load: {factory.sanctioned_load_kw if factory else 250} kW, "
+            f"Solar: {factory.solar_capacity_kw if factory else 100} kW"
+        )
+        explanation = explainer.chat(user_message=message, context=context_str)
+        return {
+            "factory_id": factory_id,
+            "start_time": start_time,
+            "end_time": end_time,
+            "comparison": None,
+            "ai_explanation": explanation["explanation"],
+            "ai_model": explanation["model"],
+            "tokens_used": explanation["tokens_used"],
+            "warning": explanation.get("warning"),
+        }
+
     if not start_time:
         start_time = datetime.now().replace(
             minute=0, second=0, microsecond=0
@@ -59,7 +107,6 @@ def explain_optimization(
     )
 
     # Generate AI explanation
-    explainer = AIExplainer()
     explanation = explainer.explain_comparison(comparison)
 
     return {

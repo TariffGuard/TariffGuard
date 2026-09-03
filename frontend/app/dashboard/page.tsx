@@ -6,7 +6,7 @@ import { GlassPanel } from '@/components/ui/glass_panel';
 import { EnergyConsumptionChart } from '@/components/charts/energy_consumption_chart';
 import { Badge } from '@/components/ui/badge';
 import { AlertTriangle, Info, Bell, Loader2, Sun, Cloud, CloudRain, CloudSun, Thermometer, Droplets } from 'lucide-react';
-import { dashboardApi, forecastApi, alertApi, tariffApi } from '@/lib/api';
+import { dashboardApi, forecastApi, alertApi, tariffApi, factoryApi } from '@/lib/api';
 import { FactoryDashboard, DashboardSummary, Alert, LoadForecast, SolarForecast, WeatherForecast, WeatherDayForecast, TariffPeriod } from '@/types';
 
 interface DashboardData {
@@ -27,7 +27,8 @@ export default function DashboardOverview() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const factoryId = 1;
+        const factories = await factoryApi.list().catch(() => []);
+        const factoryId = factories.length > 0 ? factories[0].id : 1;
 
         const today = new Date();
         today.setMinutes(0, 0, 0);

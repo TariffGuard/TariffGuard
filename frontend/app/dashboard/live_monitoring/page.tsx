@@ -13,7 +13,7 @@ import {
 } from 'recharts';
 import { cn } from '@/lib/utils';
 import { Loader2, AlertTriangle } from 'lucide-react';
-import { machineApi, meterApi, forecastApi, dashboardApi, tariffApi } from '@/lib/api';
+import { machineApi, meterApi, forecastApi, dashboardApi, tariffApi, factoryApi } from '@/lib/api';
 import { Machine, MeterReading, LoadForecast, SolarForecast, DemandRiskForecast, FactoryDashboard, TariffPeriod } from '@/types';
 
 interface LiveData {
@@ -53,7 +53,8 @@ export default function LiveMonitoringPage() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const factoryId = 1;
+        const factories = await factoryApi.list().catch(() => []);
+        const factoryId = factories.length > 0 ? factories[0].id : 1;
         const now = new Date();
         const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
         const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();

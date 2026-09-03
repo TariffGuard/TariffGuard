@@ -18,6 +18,7 @@ from app.services.weather_service import WeatherService
 router = APIRouter(prefix="/api/forecast", tags=["forecast"])
 
 
+@router.get("/solar/{factory_id}")
 @router.post("/solar/{factory_id}")
 def solar_forecast(
     factory_id: int,
@@ -58,6 +59,7 @@ def solar_forecast(
     }
 
 
+@router.get("/solar/{factory_id}/profile")
 @router.post("/solar/{factory_id}/profile")
 def solar_profile(
     factory_id: int,
@@ -85,6 +87,7 @@ def solar_profile(
     }
 
 
+@router.get("/load/{factory_id}")
 @router.post("/load/{factory_id}")
 def load_forecast(
     factory_id: int,

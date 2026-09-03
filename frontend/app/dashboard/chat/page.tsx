@@ -37,12 +37,11 @@ export default function ChatPage() {
     setMessages(prev => [...prev, newUserMsg]);
     setInputValue('');
     setIsLoading(true);
-
     try {
-      const isSchedule = text.toLowerCase().includes('schedule');
-      const endpoint = isSchedule 
+      const isScheduleOnly = text.toLowerCase().trim() === 'summarize today\'s schedule';
+      const endpoint = isScheduleOnly
         ? '/api/ai/explain-schedule/1' 
-        : `/api/ai/explain/1?message=${encodeURIComponent(text)}`;
+        : `/api/ai/chat/1?message=${encodeURIComponent(text)}`;
       
       const response = await fetchApi(endpoint, { method: 'POST' });
       

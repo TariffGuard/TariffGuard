@@ -47,10 +47,12 @@ RULES:
 """
 
 
+import os
+
 class AIExplainer:
     """
-    Sends structured optimizer output to Qwen and returns a plain-language
-    explanation.
+    Sends structured optimizer output or user questions to LLMs (Google Gemini, Qwen, or OpenAI)
+    and returns plain-language explanations.
 
     Usage::
 
@@ -62,23 +64,113 @@ class AIExplainer:
         self._client: Optional[OpenAI] = None
 
     @property
-    def client(self) -> OpenAI:
-        if self._client is None:
-            if not settings.QWEN_API_KEY:
-                raise ValueError(
-                    "QWEN_API_KEY is not configured. "
-                    "Set it in your .env file or environment variables."
-                )
-            self._client = OpenAI(
-                api_key=settings.QWEN_API_KEY,
-                base_url=settings.QWEN_BASE_URL,
-            )
-        return self._client
+    def api_key(self) -> Optional[str]:
+        return (
+            os.getenv("GEMINI_API_KEY")
+            or settings.GEMINI_API_KEY
+            or os.getenv("QWEN_API_KEY")
+            or settings.QWEN_API_KEY
+            or os.getenv("OPENAI_API_KEY")
+            or settings.OPENAI_API_KEY
+        )
 
     @property
     def is_available(self) -> bool:
-        """Check if the Qwen API key is configured."""
-        return bool(settings.QWEN_API_KEY)
+        """Check if any AI provider key is configured."""
+        key = self.api_key
+        return bool(key and key.strip() and key != "dummy_key")
+
+    @property
+    def provider_info(self) -> Dict[str, str]:
+        """Detect provider, base_url, and model based on key format."""
+        key = (self.api_key or "").strip()
+        
+        # Check for Google Gemini (keys starting with AQ. or AIza or explicit GEMINI_API_KEY)
+        if os.getenv("GEMINI_API_KEY") or settings.GEMINI_API_KEY or key.startswith("AQ.") or key.startswith("AIza"):
+            return {
+                "provider": "Google Gemini",
+                "base_url": settings.GEMINI_BASE_URL,
+                "model": settings.GEMINI_MODEL,
+            }
+        
+        # Check for OpenAI
+        if os.getenv("OPENAI_API_KEY") or settings.OPENAI_API_KEY or key.startswith("sk-proj-"):
+            return {
+                "provider": "OpenAI",
+                "base_url": "https://api.openai.com/v1",
+                "model": "gpt-4o-mini",
+            }
+
+        # Default to Alibaba Cloud Qwen
+        return {
+            "provider": "Qwen (Alibaba Cloud)",
+            "base_url": settings.QWEN_BASE_URL,
+            "model": settings.QWEN_MODEL,
+        }
+
+    @property
+    def client(self) -> OpenAI:
+        if self._client is None:
+            key = self.api_key
+            if not self.is_available:
+                raise ValueError(
+                    "AI API key is not configured. "
+                    "Set GEMINI_API_KEY or QWEN_API_KEY in your .env file."
+                )
+            info = self.provider_info
+            self._client = OpenAI(
+                api_key=key.strip(),
+                base_url=info["base_url"],
+            )
+        return self._client
+
+    def chat(self, user_message: str, context: Optional[str] = None) -> Dict:
+        """Handle general conversation with the factory energy advisor."""
+        if not self.is_available:
+            return {
+                "explanation": (
+                    "I am TariffGuard AI Advisor. To enable full generative AI chat, "
+                    "please ensure your GEMINI_API_KEY or QWEN_API_KEY is set in your .env file."
+                ),
+                "model": "fallback",
+                "tokens_used": {"prompt_tokens": 0, "completion_tokens": 0},
+                "warning": "AI key not configured",
+            }
+
+        info = self.provider_info
+        system_msg = SYSTEM_PROMPT + "\n\nYou also answer general questions about factory electricity tariffs, TOU peak hours in Pakistan, load management, solar generation, and cost reduction."
+        user_prompt = user_message
+        if context:
+            user_prompt = f"Factory Context:\n{context}\n\nUser Question:\n{user_message}"
+
+        try:
+            response = self.client.chat.completions.create(
+                model=info["model"],
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.6,
+                max_tokens=800,
+            )
+            message = response.choices[0].message.content or ""
+            usage = response.usage
+            return {
+                "explanation": message.strip(),
+                "model": f"{info['provider']} ({info['model']})",
+                "tokens_used": {
+                    "prompt_tokens": usage.prompt_tokens if usage else 0,
+                    "completion_tokens": usage.completion_tokens if usage else 0,
+                },
+            }
+        except Exception as e:
+            logger.error("AI chat API failed: %s", e)
+            return {
+                "explanation": f"I encountered an issue communicating with the AI service ({info['provider']}): {e}",
+                "model": "error",
+                "tokens_used": {"prompt_tokens": 0, "completion_tokens": 0},
+                "warning": str(e),
+            }
 
     # ------------------------------------------------------------------
     # Public API
@@ -101,10 +193,11 @@ class AIExplainer:
             - tokens_used: dict (prompt_tokens, completion_tokens)
         """
         prompt = self._build_prompt(comparison)
+        info = self.provider_info
 
         try:
             response = self.client.chat.completions.create(
-                model=settings.QWEN_MODEL,
+                model=info["model"],
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
@@ -113,12 +206,12 @@ class AIExplainer:
                 max_tokens=800,
             )
         except Exception as e:
-            logger.error("Qwen API call failed: %s", e)
+            logger.error("AI API call failed: %s", e)
             return {
                 "explanation": self._fallback_explanation(comparison),
                 "model": "rule_based_fallback",
                 "tokens_used": {"prompt_tokens": 0, "completion_tokens": 0},
-                "warning": f"Qwen API unavailable ({e}), using rule-based fallback",
+                "warning": f"AI API unavailable ({e}), using rule-based fallback",
             }
 
         message = response.choices[0].message.content or ""
@@ -126,7 +219,7 @@ class AIExplainer:
 
         return {
             "explanation": message.strip(),
-            "model": settings.QWEN_MODEL,
+            "model": f"{info['provider']} ({info['model']})",
             "tokens_used": {
                 "prompt_tokens": usage.prompt_tokens if usage else 0,
                 "completion_tokens": usage.completion_tokens if usage else 0,
@@ -143,10 +236,11 @@ class AIExplainer:
             Output from ScheduleOptimizer.create_optimized_schedule()
         """
         prompt = self._build_schedule_prompt(schedule_result)
+        info = self.provider_info
 
         try:
             response = self.client.chat.completions.create(
-                model=settings.QWEN_MODEL,
+                model=info["model"],
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
@@ -155,12 +249,12 @@ class AIExplainer:
                 max_tokens=600,
             )
         except Exception as e:
-            logger.error("Qwen API call failed: %s", e)
+            logger.error("AI API call failed: %s", e)
             return {
                 "explanation": self._fallback_schedule_explanation(schedule_result),
                 "model": "rule_based_fallback",
                 "tokens_used": {"prompt_tokens": 0, "completion_tokens": 0},
-                "warning": f"Qwen API unavailable ({e}), using rule-based fallback",
+                "warning": f"AI API unavailable ({e}), using rule-based fallback",
             }
 
         message = response.choices[0].message.content or ""
@@ -168,7 +262,7 @@ class AIExplainer:
 
         return {
             "explanation": message.strip(),
-            "model": settings.QWEN_MODEL,
+            "model": f"{info['provider']} ({info['model']})",
             "tokens_used": {
                 "prompt_tokens": usage.prompt_tokens if usage else 0,
                 "completion_tokens": usage.completion_tokens if usage else 0,

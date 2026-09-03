@@ -1,0 +1,474 @@
+﻿from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+from typing import Dict, Any
+
+from app.core.database import get_db
+from app.models.factory import Factory
+from app.models.machine import Machine
+from app.models.production_order import ProductionOrder
+from app.models.tariff import Tariff
+from app.models.meter_reading import MeterReading
+
+router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+
+@router.get("/summary")
+def get_dashboard_summary(db: Session = Depends(get_db)):
+    """Get overall dashboard summary"""
+    total_factories = db.query(func.count(Factory.id)).scalar()
+    total_machines = db.query(func.count(Machine.id)).scalar()
+    total_orders = db.query(func.count(ProductionOrder.id)).scalar()
+    total_tariffs = db.query(func.count(Tariff.id)).scalar()
+    total_readings = db.query(func.count(MeterReading.id)).scalar()
+    
+    # Order status breakdown
+    pending_orders = db.query(func.count(ProductionOrder.id)).filter(ProductionOrder.status == "pending").scalar()
+    running_orders = db.query(func.count(ProductionOrder.id)).filter(ProductionOrder.status == "running").scalar()
+    completed_orders = db.query(func.count(ProductionOrder.id)).filter(ProductionOrder.status == "completed").scalar()
+    
+    return {
+        "totals": {
+            "factories": total_factories,
+            "machines": total_machines,
+            "orders": total_orders,
+            "tariffs": total_tariffs,
+            "meter_readings": total_readings
+        },
+        "order_status": {
+            "pending": pending_orders,
+            "running": running_orders,
+            "completed": completed_orders
+        }
+    }
+
+@router.get("/factory/{factory_id}")
+def get_factory_dashboard(factory_id: int, db: Session = Depends(get_db)):
+    """Get dashboard for specific factory"""
+    factory = db.query(Factory).filter(Factory.id == factory_id).first()
+    if not factory:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Factory not found")
+    
+    machines = db.query(func.count(Machine.id)).filter(Machine.factory_id == factory_id).scalar()
+    orders = db.query(func.count(ProductionOrder.id)).filter(ProductionOrder.factory_id == factory_id).scalar()
+    
+    # Energy stats
+    energy_stats = db.query(
+        func.sum(MeterReading.kwh).label('total_kwh'),
+        func.max(MeterReading.kw).label('peak_kw'),
+        func.sum(MeterReading.solar_kwh).label('total_solar_kwh')
+    ).filter(MeterReading.factory_id == factory_id).first()
+    
+    return {
+        "factory": {
+            "id": factory.id,
+            "name": factory.name,
+            "location": factory.location,
+            "sanctioned_load_kw": factory.sanctioned_load_kw,
+            "solar_capacity_kw": factory.solar_capacity_kw
+        },
+        "counts": {
+            "machines": machines,
+            "orders": orders
+        },
+        "energy": {
+            "total_kwh": round(energy_stats.total_kwh or 0, 2) if energy_stats else 0,
+            "peak_kw": round(energy_stats.peak_kw or 0, 2) if energy_stats else 0,
+            "total_solar_kwh": round(energy_stats.total_solar_kwh or 0, 2) if energy_stats else 0
+        }
+    }
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from typing import List
+
+from app.core.database import get_db
+from app.models.factory import Factory
+from app.schemas.factory import FactoryCreate, FactoryResponse, FactoryUpdate
+
+router = APIRouter(prefix="/api/factories", tags=["factories"])
+
+@router.post("/", response_model=FactoryResponse)
+def create_factory(factory: FactoryCreate, db: Session = Depends(get_db)):
+    db_factory = Factory(**factory.dict())
+    db.add(db_factory)
+    db.commit()
+    db.refresh(db_factory)
+    return db_factory
+
+@router.get("/", response_model=List[FactoryResponse])
+def list_factories(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    factories = db.query(Factory).offset(skip).limit(limit).all()
+    return factories
+
+@router.get("/{factory_id}", response_model=FactoryResponse)
+def get_factory(factory_id: int, db: Session = Depends(get_db)):
+    factory = db.query(Factory).filter(Factory.id == factory_id).first()
+    if not factory:
+        raise HTTPException(status_code=404, detail="Factory not found")
+    return factory
+
+@router.put("/{factory_id}", response_model=FactoryResponse)
+def update_factory(factory_id: int, factory: FactoryUpdate, db: Session = Depends(get_db)):
+    db_factory = db.query(Factory).filter(Factory.id == factory_id).first()
+    if not db_factory:
+        raise HTTPException(status_code=404, detail="Factory not found")
+    
+    for key, value in factory.dict(exclude_unset=True).items():
+        setattr(db_factory, key, value)
+    
+    db.commit()
+    db.refresh(db_factory)
+    return db_factory
+
+@router.delete("/{factory_id}")
+def delete_factory(factory_id: int, db: Session = Depends(get_db)):
+    db_factory = db.query(Factory).filter(Factory.id == factory_id).first()
+    if not db_factory:
+        raise HTTPException(status_code=404, detail="Factory not found")
+    
+    db.delete(db_factory)
+    db.commit()
+    return {"message": "Factory deleted successfully"}
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from typing import List
+
+from app.core.database import get_db
+from app.models.machine import Machine
+from app.schemas.machine import MachineCreate, MachineResponse
+
+router = APIRouter(prefix="/api/machines", tags=["machines"])
+
+@router.post("/", response_model=MachineResponse)
+def create_machine(machine: MachineCreate, db: Session = Depends(get_db)):
+    db_machine = Machine(**machine.dict())
+    db.add(db_machine)
+    db.commit()
+    db.refresh(db_machine)
+    return db_machine
+
+@router.get("/", response_model=List[MachineResponse])
+def list_machines(factory_id: int = None, skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    query = db.query(Machine)
+    if factory_id:
+        query = query.filter(Machine.factory_id == factory_id)
+    return query.offset(skip).limit(limit).all()
+
+@router.get("/{machine_id}", response_model=MachineResponse)
+def get_machine(machine_id: int, db: Session = Depends(get_db)):
+    machine = db.query(Machine).filter(Machine.id == machine_id).first()
+    if not machine:
+        raise HTTPException(status_code=404, detail="Machine not found")
+    return machine
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from sqlalchemy.orm import Session
+from typing import List
+from datetime import datetime
+import pandas as pd
+import io
+
+from app.core.database import get_db
+from app.models.meter_reading import MeterReading
+from app.schemas.meter_reading import MeterReadingCreate, MeterReadingResponse, MeterReadingBulkCreate
+
+router = APIRouter(prefix="/api/meter-readings", tags=["meter-readings"])
+
+@router.post("/", response_model=MeterReadingResponse)
+def create_reading(reading: MeterReadingCreate, db: Session = Depends(get_db)):
+    """Create a single meter reading"""
+    db_reading = MeterReading(**reading.dict())
+    db.add(db_reading)
+    db.commit()
+    db.refresh(db_reading)
+    return db_reading
+
+@router.post("/bulk", response_model=List[MeterReadingResponse])
+def create_bulk_readings(bulk: MeterReadingBulkCreate, db: Session = Depends(get_db)):
+    """Create multiple meter readings at once"""
+    readings = []
+    for reading_data in bulk.readings:
+        reading = MeterReading(
+            factory_id=bulk.factory_id,
+            **reading_data.dict()
+        )
+        db.add(reading)
+        readings.append(reading)
+    
+    db.commit()
+    for reading in readings:
+        db.refresh(reading)
+    
+    return readings
+
+@router.post("/import-csv")
+async def import_csv(
+    factory_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    """Import meter readings from CSV file"""
+    try:
+        # Read CSV
+        content = await file.read()
+        df = pd.read_csv(io.StringIO(content.decode('utf-8')))
+        
+        # Validate required columns
+        required_columns = ['timestamp', 'kwh']
+        for col in required_columns:
+            if col not in df.columns:
+                raise HTTPException(status_code=400, detail=f"Missing required column: {col}")
+        
+        # Convert timestamp
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        
+        # Create readings
+        readings = []
+        for _, row in df.iterrows():
+            reading = MeterReading(
+                factory_id=factory_id,
+                timestamp=row['timestamp'].to_pydatetime(),
+                kwh=float(row['kwh']),
+                kw=float(row.get('kw', 0)) if pd.notna(row.get('kw')) else None,
+                solar_kwh=float(row.get('solar_kwh', 0)) if pd.notna(row.get('solar_kwh')) else 0,
+                voltage=float(row.get('voltage')) if pd.notna(row.get('voltage')) else None,
+                current=float(row.get('current')) if pd.notna(row.get('current')) else None,
+                power_factor=float(row.get('power_factor')) if pd.notna(row.get('power_factor')) else None
+            )
+            readings.append(reading)
+        
+        # Save to database
+        db.add_all(readings)
+        db.commit()
+        
+        return {
+            "message": f"Successfully imported {len(readings)} readings",
+            "count": len(readings)
+        }
+    
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
+@router.get("/", response_model=List[MeterReadingResponse])
+def list_readings(
+    factory_id: int = None,
+    start_date: datetime = None,
+    end_date: datetime = None,
+    skip: int = 0,
+    limit: int = 1000,
+    db: Session = Depends(get_db)
+):
+    """List meter readings with filters"""
+    query = db.query(MeterReading)
+    
+    if factory_id:
+        query = query.filter(MeterReading.factory_id == factory_id)
+    
+    if start_date:
+        query = query.filter(MeterReading.timestamp >= start_date)
+    
+    if end_date:
+        query = query.filter(MeterReading.timestamp <= end_date)
+    
+    return query.order_by(MeterReading.timestamp.desc()).offset(skip).limit(limit).all()
+
+@router.get("/stats/{factory_id}")
+def get_reading_stats(factory_id: int, db: Session = Depends(get_db)):
+    """Get statistics for meter readings"""
+    from sqlalchemy import func
+    
+    stats = db.query(
+        func.count(MeterReading.id).label('total_readings'),
+        func.sum(MeterReading.kwh).label('total_kwh'),
+        func.avg(MeterReading.kwh).label('avg_kwh'),
+        func.max(MeterReading.kw).label('peak_kw'),
+        func.sum(MeterReading.solar_kwh).label('total_solar_kwh')
+    ).filter(MeterReading.factory_id == factory_id).first()
+    
+    if not stats or not stats.total_readings:
+        return {
+            "total_readings": 0,
+            "total_kwh": 0,
+            "avg_kwh": 0,
+            "peak_kw": 0,
+            "total_solar_kwh": 0
+        }
+    
+    return {
+        "total_readings": stats.total_readings,
+        "total_kwh": round(stats.total_kwh or 0, 2),
+        "avg_kwh": round(stats.avg_kwh or 0, 2),
+        "peak_kw": round(stats.peak_kw or 0, 2),
+        "total_solar_kwh": round(stats.total_solar_kwh or 0, 2)
+    }
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from datetime import datetime, timedelta
+from typing import Optional
+
+from app.core.database import get_db
+from app.services.optimizer import ScheduleOptimizer
+
+router = APIRouter(prefix="/api/optimize", tags=["optimization"])
+
+@router.post("/schedule/{factory_id}")
+def optimize_schedule(
+    factory_id: int,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+    db: Session = Depends(get_db)
+):
+    """Generate optimized schedule for a factory"""
+    
+    # Default to next 24 hours if not specified
+    if not start_time:
+        start_time = datetime.now().replace(minute=0, second=0, microsecond=0)
+    if not end_time:
+        end_time = start_time + timedelta(hours=24)
+    
+    optimizer = ScheduleOptimizer(db)
+    result = optimizer.create_optimized_schedule(factory_id, start_time, end_time)
+    
+    return result
+
+@router.post("/compare/{factory_id}")
+def compare_schedules(
+    factory_id: int,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+    db: Session = Depends(get_db)
+):
+    """Compare baseline vs optimized schedule"""
+    
+    if not start_time:
+        start_time = datetime.now().replace(minute=0, second=0, microsecond=0)
+    if not end_time:
+        end_time = start_time + timedelta(hours=24)
+    
+    optimizer = ScheduleOptimizer(db)
+    result = optimizer.compare_baseline_vs_optimized(factory_id, start_time, end_time)
+    
+    return result
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from typing import List
+
+from app.core.database import get_db
+from app.models.production_order import ProductionOrder
+from app.schemas.production_order import ProductionOrderCreate, ProductionOrderResponse
+
+router = APIRouter(prefix="/api/orders", tags=["orders"])
+
+@router.post("/", response_model=ProductionOrderResponse)
+def create_order(order: ProductionOrderCreate, db: Session = Depends(get_db)):
+    db_order = ProductionOrder(**order.dict())
+    db.add(db_order)
+    db.commit()
+    db.refresh(db_order)
+    return db_order
+
+@router.get("/", response_model=List[ProductionOrderResponse])
+def list_orders(factory_id: int = None, status: str = None, db: Session = Depends(get_db)):
+    query = db.query(ProductionOrder)
+    if factory_id:
+        query = query.filter(ProductionOrder.factory_id == factory_id)
+    if status:
+        query = query.filter(ProductionOrder.status == status)
+    return query.all()
+
+@router.get("/{order_id}", response_model=ProductionOrderResponse)
+def get_order(order_id: int, db: Session = Depends(get_db)):
+    order = db.query(ProductionOrder).filter(ProductionOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return order
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from typing import List, Optional
+from datetime import date
+
+from app.core.database import get_db
+from app.models.tariff import Tariff
+from app.schemas.tariff import TariffCreate, TariffResponse, TariffUpdate
+
+router = APIRouter(prefix="/api/tariffs", tags=["tariffs"])
+
+@router.post("/", response_model=TariffResponse)
+def create_tariff(tariff: TariffCreate, db: Session = Depends(get_db)):
+    """Create a new tariff period"""
+    db_tariff = Tariff(**tariff.dict())
+    db.add(db_tariff)
+    db.commit()
+    db.refresh(db_tariff)
+    return db_tariff
+
+@router.get("/", response_model=List[TariffResponse])
+def list_tariffs(
+    category: Optional[str] = None,
+    active_only: bool = False,
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db)
+):
+    """List all tariffs with optional filters"""
+    query = db.query(Tariff)
+    
+    if category:
+        query = query.filter(Tariff.category == category)
+    
+    if active_only:
+        today = date.today()
+        query = query.filter(
+            Tariff.effective_from <= today,
+            (Tariff.effective_to.is_(None)) | (Tariff.effective_to >= today)
+        )
+    
+    return query.offset(skip).limit(limit).all()
+
+@router.get("/{tariff_id}", response_model=TariffResponse)
+def get_tariff(tariff_id: int, db: Session = Depends(get_db)):
+    """Get a specific tariff by ID"""
+    tariff = db.query(Tariff).filter(Tariff.id == tariff_id).first()
+    if not tariff:
+        raise HTTPException(status_code=404, detail="Tariff not found")
+    return tariff
+
+@router.put("/{tariff_id}", response_model=TariffResponse)
+def update_tariff(tariff_id: int, tariff: TariffUpdate, db: Session = Depends(get_db)):
+    """Update a tariff"""
+    db_tariff = db.query(Tariff).filter(Tariff.id == tariff_id).first()
+    if not db_tariff:
+        raise HTTPException(status_code=404, detail="Tariff not found")
+    
+    for key, value in tariff.dict(exclude_unset=True).items():
+        setattr(db_tariff, key, value)
+    
+    db.commit()
+    db.refresh(db_tariff)
+    return db_tariff
+
+@router.delete("/{tariff_id}")
+def delete_tariff(tariff_id: int, db: Session = Depends(get_db)):
+    """Delete a tariff"""
+    db_tariff = db.query(Tariff).filter(Tariff.id == tariff_id).first()
+    if not db_tariff:
+        raise HTTPException(status_code=404, detail="Tariff not found")
+    
+    db.delete(db_tariff)
+    db.commit()
+    return {"message": "Tariff deleted successfully"}
+
+@router.get("/active/{category}")
+def get_active_tariff(category: str, db: Session = Depends(get_db)):
+    """Get currently active tariff for a category"""
+    today = date.today()
+    tariff = db.query(Tariff).filter(
+        Tariff.category == category,
+        Tariff.effective_from <= today,
+        (Tariff.effective_to.is_(None)) | (Tariff.effective_to >= today)
+    ).first()
+    
+    if not tariff:
+        raise HTTPException(status_code=404, detail="No active tariff found for this category")
+    
+    return tariff

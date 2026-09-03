@@ -1,0 +1,53 @@
+services:
+  # Database service
+  db:
+    image: mysql:8.0
+    container_name: tariffguard_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword123
+      MYSQL_DATABASE: tariffguard
+      MYSQL_USER: tariffguard_user
+      MYSQL_PASSWORD: tariffguard_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword123"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - tariffguard_network
+
+  # Backend API service
+  backend:
+    build: ./backend
+    container_name: tariffguard_backend
+    restart: unless-stopped
+    volumes:
+      - ./backend:/app  # Hot reload for development
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: mysql+pymysql://tariffguard_user:tariffguard_pass@db:3306/tariffguard
+      ENVIRONMENT: development
+      DEBUG: "true"
+      ALCHEMY_KEY: ${ALCHEMY_KEY:-dummy_key}
+      QWEN_API_KEY: ${QWEN_API_KEY:-dummy_key}
+      QWEN_BASE_URL: https://dashscope.aliyuncs.com/compatible-mode/v1
+      QWEN_MODEL: qwen-plus
+    depends_on:
+      db:
+        condition: service_healthy
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - tariffguard_network
+
+volumes:
+  mysql_data:
+
+networks:
+  tariffguard_network:
+    driver: bridge

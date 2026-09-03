@@ -37,7 +37,7 @@ def main():
     print("=" * 60)
 
     # Ensure we have seeded data
-    from app.core.database import SessionLocal, init_db
+    from app.core.database import SessionLocal, init_db, Base, engine
     from app.models.meter_reading import MeterReading
 
     init_db()
@@ -50,22 +50,13 @@ def main():
             meter_count,
         )
         from app.services.synthetic_data import SyntheticDataGenerator
-        from app.models.factory import Factory
-        from app.models.machine import Machine
-        from app.models.production_order import ProductionOrder
-        from app.models.tariff import Tariff
-        from app.models.weather_reading import WeatherReading
-        from app.models.alert import Alert
 
-        # Clear and re-seed
-        db.query(Alert).delete()
-        db.query(MeterReading).delete()
-        db.query(WeatherReading).delete()
-        db.query(ProductionOrder).delete()
-        db.query(Machine).delete()
-        db.query(Tariff).delete()
-        db.query(Factory).delete()
-        db.commit()
+        # Drop and recreate all tables (resets auto-increment IDs to 1)
+        logger.info("Clearing existing data...")
+        Base.metadata.drop_all(bind=engine)
+        Base.metadata.create_all(bind=engine)
+        db.close()
+        db = SessionLocal()  # fresh session after table recreation
 
         gen = SyntheticDataGenerator(db, days=args.days, seed=args.seed)
         summary = gen.generate()

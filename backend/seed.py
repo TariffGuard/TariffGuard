@@ -59,19 +59,11 @@ def main():
     logger.info("Initializing database...")
     init_db()
 
-    db = SessionLocal()
     try:
-        # Clear existing data (child tables first)
-        logger.info("Clearing existing data...")
-        db.query(Alert).delete()
-        db.query(MeterReading).delete()
-        db.query(WeatherReading).delete()
-        db.query(ProductionOrder).delete()
-        db.query(Machine).delete()
-        db.query(Tariff).delete()
-        db.query(Factory).delete()
-        db.commit()
-        logger.info("Existing data cleared.")
+        # Drop and recreate all tables (resets auto-increment IDs to 1)
+        clear_database()
+
+        db = SessionLocal()  # fresh session after table recreation
 
         # Generate synthetic data
         gen = SyntheticDataGenerator(db, days=args.days, seed=args.seed)

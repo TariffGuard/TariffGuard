@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./test.db")
     
     # AI Keys (Supports Google Gemini, Qwen / Alibaba Cloud, OpenAI)
+    AI_PROVIDER: Optional[str] = os.getenv("AI_PROVIDER", None)
     GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY", None)
     QWEN_API_KEY: Optional[str] = os.getenv("QWEN_API_KEY", None)
     OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY", None)

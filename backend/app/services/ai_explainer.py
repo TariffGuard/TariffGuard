@@ -61,11 +61,19 @@ class AIExplainer:
 
     @property
     def api_key(self) -> Optional[str]:
+        provider = (os.getenv("AI_PROVIDER") or settings.AI_PROVIDER or "").lower()
+        if provider == "qwen":
+            return os.getenv("QWEN_API_KEY") or settings.QWEN_API_KEY
+        if provider == "gemini":
+            return os.getenv("GEMINI_API_KEY") or settings.GEMINI_API_KEY
+        if provider == "openai":
+            return os.getenv("OPENAI_API_KEY") or settings.OPENAI_API_KEY
+
         return (
-            os.getenv("GEMINI_API_KEY")
-            or settings.GEMINI_API_KEY
-            or os.getenv("QWEN_API_KEY")
+            os.getenv("QWEN_API_KEY")
             or settings.QWEN_API_KEY
+            or os.getenv("GEMINI_API_KEY")
+            or settings.GEMINI_API_KEY
             or os.getenv("OPENAI_API_KEY")
             or settings.OPENAI_API_KEY
         )
@@ -78,30 +86,39 @@ class AIExplainer:
 
     @property
     def provider_info(self) -> Dict[str, str]:
-        """Detect provider, base_url, and model based on key format."""
+        """Detect provider, base_url, and model based on key format and preferences."""
+        provider = (os.getenv("AI_PROVIDER") or settings.AI_PROVIDER or "").lower()
         key = (self.api_key or "").strip()
         
-        # Check for Google Gemini (keys starting with AQ. or AIza or explicit GEMINI_API_KEY)
-        if os.getenv("GEMINI_API_KEY") or settings.GEMINI_API_KEY or key.startswith("AQ.") or key.startswith("AIza"):
+        # 1. Explicit or auto-detected Qwen
+        if provider == "qwen" or (key and (key.startswith("sk-") and not key.startswith("sk-proj-")) and not os.getenv("GEMINI_API_KEY")):
+            return {
+                "provider": "Qwen (Alibaba Cloud)",
+                "base_url": os.getenv("QWEN_BASE_URL") or settings.QWEN_BASE_URL,
+                "model": os.getenv("QWEN_MODEL") or settings.QWEN_MODEL,
+            }
+
+        # 2. Explicit or auto-detected Google Gemini
+        if provider == "gemini" or os.getenv("GEMINI_API_KEY") or key.startswith("AQ.") or key.startswith("AIza"):
             return {
                 "provider": "Google Gemini",
-                "base_url": settings.GEMINI_BASE_URL,
-                "model": settings.GEMINI_MODEL,
+                "base_url": os.getenv("GEMINI_BASE_URL") or settings.GEMINI_BASE_URL,
+                "model": os.getenv("GEMINI_MODEL") or settings.GEMINI_MODEL,
             }
         
-        # Check for OpenAI
-        if os.getenv("OPENAI_API_KEY") or settings.OPENAI_API_KEY or key.startswith("sk-proj-"):
+        # 3. OpenAI
+        if provider == "openai" or os.getenv("OPENAI_API_KEY") or key.startswith("sk-proj-"):
             return {
                 "provider": "OpenAI",
                 "base_url": "https://api.openai.com/v1",
                 "model": "gpt-4o-mini",
             }
 
-        # Default to Alibaba Cloud Qwen
+        # Default fallback to Qwen
         return {
             "provider": "Qwen (Alibaba Cloud)",
-            "base_url": settings.QWEN_BASE_URL,
-            "model": settings.QWEN_MODEL,
+            "base_url": os.getenv("QWEN_BASE_URL") or settings.QWEN_BASE_URL,
+            "model": os.getenv("QWEN_MODEL") or settings.QWEN_MODEL,
         }
 
     @property

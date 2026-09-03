@@ -12,7 +12,22 @@ router = APIRouter(prefix="/api/tariffs", tags=["tariffs"])
 @router.post("/", response_model=TariffResponse)
 def create_tariff(tariff: TariffCreate, db: Session = Depends(get_db)):
     """Create a new tariff period"""
-    db_tariff = Tariff(**tariff.dict())
+    data = tariff.dict()
+    if isinstance(data.get("effective_from"), str):
+        try:
+            data["effective_from"] = date.fromisoformat(data["effective_from"])
+        except Exception:
+            data["effective_from"] = date.today()
+    elif not data.get("effective_from"):
+        data["effective_from"] = date.today()
+        
+    if isinstance(data.get("effective_to"), str):
+        try:
+            data["effective_to"] = date.fromisoformat(data["effective_to"])
+        except Exception:
+            data["effective_to"] = None
+
+    db_tariff = Tariff(**data)
     db.add(db_tariff)
     db.commit()
     db.refresh(db_tariff)
@@ -56,7 +71,19 @@ def update_tariff(tariff_id: int, tariff: TariffUpdate, db: Session = Depends(ge
     if not db_tariff:
         raise HTTPException(status_code=404, detail="Tariff not found")
     
-    for key, value in tariff.dict(exclude_unset=True).items():
+    updates = tariff.dict(exclude_unset=True)
+    if isinstance(updates.get("effective_from"), str):
+        try:
+            updates["effective_from"] = date.fromisoformat(updates["effective_from"])
+        except Exception:
+            pass
+    if isinstance(updates.get("effective_to"), str):
+        try:
+            updates["effective_to"] = date.fromisoformat(updates["effective_to"])
+        except Exception:
+            pass
+
+    for key, value in updates.items():
         setattr(db_tariff, key, value)
     
     db.commit()

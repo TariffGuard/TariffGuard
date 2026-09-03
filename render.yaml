@@ -1,6 +1,6 @@
 services:
   # ----------------------------------------------------------------------------
-  # Backend API Service (FastAPI + OR-Tools + XGBoost)
+  # TariffGuard Backend API (FastAPI + XGBoost + OR-Tools Optimizer)
   # ----------------------------------------------------------------------------
   - type: web
     name: tariffguard-backend
@@ -21,20 +21,3 @@ services:
         value: production
       - key: DEBUG
         value: "false"
-
-  # ----------------------------------------------------------------------------
-  # Frontend Web UI (Next.js 16)
-  # ----------------------------------------------------------------------------
-  - type: web
-    name: tariffguard-frontend
-    runtime: node
-    region: oregon
-    plan: free
-    rootDir: frontend
-    buildCommand: "npm install && npm run build"
-    startCommand: "npm start"
-    envVars:
-      - key: NODE_VERSION
-        value: 20.14.0
-      - key: NEXT_PUBLIC_API_URL
-        sync: false # Point to your https://tariffguard-backend.onrender.com URL

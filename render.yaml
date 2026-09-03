@@ -9,13 +9,15 @@ services:
     plan: free
     rootDir: backend
     buildCommand: "pip install --upgrade pip && pip install -r requirements.txt"
-    startCommand: "python -m seed --days 90 && python train_model.py && uvicorn main:app --host 0.0.0.0 --port $PORT"
+    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
       - key: DATABASE_URL
         sync: false # Set in Render Dashboard with your Aiven MySQL URI
       - key: GEMINI_API_KEY
+        sync: false # Set in Render Dashboard
+      - key: QWEN_API_KEY
         sync: false # Set in Render Dashboard
       - key: ENVIRONMENT
         value: production

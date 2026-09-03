@@ -67,10 +67,41 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 async def dashboard():
     return FileResponse("static/index.html")
 
+import threading
+
+def background_initialization():
+    """Run seeder and model training asynchronously so Uvicorn opens port immediately"""
+    try:
+        from app.core.database import SessionLocal
+        from app.models.factory import Factory
+        db = SessionLocal()
+        factory_exists = db.query(Factory).first()
+        db.close()
+        
+        if not factory_exists:
+            print("[Startup] Seeding initial factory database...")
+            from app.services.synthetic_data import SyntheticDataGenerator
+            db = SessionLocal()
+            gen = SyntheticDataGenerator(db, days=30)
+            gen.generate()
+            db.close()
+            print("[Startup] Database seeded successfully!")
+            
+        import os
+        model_path = os.path.join(os.path.dirname(__file__), "app", "models", "xgboost_load_model.json")
+        if not os.path.exists(model_path):
+            print("[Startup] Training XGBoost forecasting model...")
+            from train_model import train
+            train()
+            print("[Startup] XGBoost model trained successfully!")
+    except Exception as e:
+        print(f"[Startup Warning] Background initialization error: {e}")
+
 @app.on_event("startup")
 async def startup_event():
     init_db()
-    print("Database initialized!")
+    print("Database tables initialized!")
+    threading.Thread(target=background_initialization, daemon=True).start()
 
 @app.get("/")
 async def root():

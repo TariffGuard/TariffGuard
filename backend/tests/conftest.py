@@ -1,4 +1,10 @@
+import os
 import pytest
+
+# Force isolated SQLite database for all unit/integration tests
+os.environ["DATABASE_URL"] = "sqlite:///./test.db"
+os.environ["ENVIRONMENT"] = "testing"
+
 from app.core.database import init_db, SessionLocal
 from app.models.factory import Factory
 from app.services.synthetic_data import SyntheticDataGenerator

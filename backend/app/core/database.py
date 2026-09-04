@@ -94,6 +94,17 @@ def get_db():
         db.close()
 
 def init_db():
-    """Create all tables"""
-    Base.metadata.create_all(bind=engine)
-    print("Database initialized successfully!")
+    """Create all tables with automatic SQLite fallback if cloud DB is unreachable"""
+    global engine, SessionLocal
+    try:
+        Base.metadata.create_all(bind=engine)
+        print("Database initialized successfully!")
+    except Exception as e:
+        print(f"[Database Warning] Primary DB unreachable ({e}). Falling back to local SQLite.")
+        engine = create_engine(
+            "sqlite:///./test.db",
+            connect_args={"check_same_thread": False}
+        )
+        SessionLocal.configure(bind=engine)
+        Base.metadata.create_all(bind=engine)
+        print("SQLite fallback database initialized successfully!")

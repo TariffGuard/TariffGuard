@@ -20,7 +20,9 @@ from app.models.tariff import Tariff
 from app.models.meter_reading import MeterReading
 from app.models.weather_reading import WeatherReading
 from app.models.alert import Alert
+from app.models.user import User
 from app.services.synthetic_data import SyntheticDataGenerator
+from app.services.auth import AuthService
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,11 +33,33 @@ logger = logging.getLogger(__name__)
 
 
 def clear_database():
-    """Drop and recreate all tables."""
-    logger.info("Clearing existing data...")
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database cleared and recreated.")
+    """Do NOT clear database. Keep existing data."""
+    logger.info("Skipping database clear (preserving all existing data)...")
+    pass
+
+
+def create_default_users(db):
+    """Create default users if they don't exist."""
+    users = [
+        {"username": "owner", "email": "i243150@isb.nu.edu.pk", "password": "Test@123", "role": "owner"},
+        {"username": "manager", "email": "manager@tariffguard.com", "password": "Test@123", "role": "manager"},
+        {"username": "supervisor", "email": "supervisor@tariffguard.com", "password": "Test@123", "role": "supervisor"},
+        {"username": "viewer", "email": "viewer@tariffguard.com", "password": "Test@123", "role": "viewer"},
+    ]
+    
+    for user_data in users:
+        existing = db.query(User).filter(User.username == user_data["username"]).first()
+        if not existing:
+            AuthService.create_user(
+                db,
+                username=user_data["username"],
+                email=user_data["email"],
+                password=user_data["password"],
+                role=user_data["role"]
+            )
+            logger.info(f"Created user: {user_data['username']} (role: {user_data['role']})")
+        else:
+            logger.info(f"User already exists: {user_data['username']}")
 
 
 def main():
@@ -59,13 +83,13 @@ def main():
     logger.info("Initializing database...")
     init_db()
 
+    db = SessionLocal()
+
     try:
-        # Drop and recreate all tables (resets auto-increment IDs to 1)
-        clear_database()
+        # Create default users (if not exist)
+        create_default_users(db)
 
-        db = SessionLocal()  # fresh session after table recreation
-
-        # Generate synthetic data
+        # Generate synthetic data (adds to existing)
         gen = SyntheticDataGenerator(db, days=args.days, seed=args.seed)
         summary = gen.generate()
 
@@ -81,12 +105,15 @@ def main():
         print(f"  Days covered:     {summary['days']}")
         print(f"  Data source:      {summary['data_source']}")
         print("=" * 60)
+        print(f"\nDefault Users (password: Test@123):")
+        print(f"  - owner / Test@123 (Owner)")
+        print(f"  - manager / Test@123 (Manager)")
+        print(f"  - supervisor / Test@123 (Supervisor)")
+        print(f"  - viewer / Test@123 (Viewer)")
         print(f"\nNext steps:")
         print(f"  1. Start the API:  uvicorn main:app --reload")
         print(f"  2. Open docs:      http://localhost:8000/docs")
         print(f"  3. Factory ID:     GET /api/factories/{summary['factory_id']}")
-        print(f"  4. Machines:       GET /api/machines/?factory_id={summary['factory_id']}")
-        print(f"  5. Orders:         GET /api/orders/?factory_id={summary['factory_id']}")
 
     except Exception as e:
         logger.error("Error during seeding: %s", e, exc_info=True)

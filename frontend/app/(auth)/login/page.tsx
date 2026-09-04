@@ -30,25 +30,31 @@ function LoginContent() {
       setSuccessMsg('Account created successfully. Please login.');
     }
   }, [searchParams]);
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError('');
-    setSuccessMsg('');
-    try {
-      await login(username, password);
-      router.push('/dashboard');
-    } catch (err: any) {
-      if (err.message?.toLowerCase().includes('401') || err.message?.toLowerCase().includes('invalid')) {
-        setError('Invalid username or password');
-      } else {
-        setError(err.message || 'Failed to login');
-      }
-    } finally {
-      setIsLoading(false);
+const handleLogin = async (e: React.FormEvent) => {
+  e.preventDefault();
+  setIsLoading(true);
+  setError('');
+  setSuccessMsg('');
+  
+  try {
+    console.log('Attempting login with username:', username);
+    await login(username, password);
+    console.log('Login successful, redirecting to dashboard');
+    router.push('/dashboard');
+  } catch (err: any) {
+    console.error('Full login error:', err);
+    
+    if (err.message?.toLowerCase().includes('401') || 
+        err.message?.toLowerCase().includes('invalid') ||
+        err.message?.toLowerCase().includes('password')) {
+      setError('Invalid username or password. Please try again.');
+    } else {
+      setError(err.message || 'Failed to login');
     }
-  };
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   const handleDemo = (roleOverride: Role) => {
     demoLogin(roleOverride);

@@ -1,14 +1,26 @@
 'use client';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { LayoutDashboard, CalendarClock, Server, Bell, CalendarDays, FileBarChart, Settings, Calculator, Activity, MessageCircle, Package } from 'lucide-react';
+import { 
+  LayoutDashboard, 
+  CalendarClock, 
+  Server, 
+  Bell, 
+  CalendarDays, 
+  FileBarChart, 
+  Settings, 
+  Calculator, 
+  Activity, 
+  MessageCircle, 
+  Package,
+  LogOut
+} from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { useAuth } from '@/context/auth_context';
 import { useState, useEffect } from 'react';
 import { fetchApi, tariffApi } from '@/lib/api';
 import { TariffPeriod } from '@/types';
-
 import { LucideIcon } from 'lucide-react';
 
 const navItems: Array<{name: string, href: string, icon: LucideIcon, badge?: number}> = [
@@ -49,7 +61,8 @@ function getCurrentTariff(tariffs: TariffPeriod[]) {
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { role, user } = useAuth();
+  const router = useRouter();
+  const { role, user, logout } = useAuth();
   const [unresolvedCount, setUnresolvedCount] = useState(0);
   const [currentTariff, setCurrentTariff] = useState<TariffPeriod | null>(null);
 
@@ -67,6 +80,11 @@ export function Sidebar() {
       })
       .catch(console.error);
   }, []);
+
+  const handleLogout = () => {
+    logout();
+    router.push('/login');
+  };
 
   const isPeak = currentTariff?.period_name.toLowerCase().includes('peak') && !currentTariff?.period_name.toLowerCase().includes('off');
 
@@ -122,7 +140,8 @@ export function Sidebar() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3 px-2">
+        {/* User Info + Logout */}
+        <div className="flex items-center gap-3 px-2 mb-3">
           <div className="w-8 h-8 rounded-full bg-[var(--color-primary)] flex items-center justify-center text-white font-medium text-sm">
             {role ? role.charAt(0).toUpperCase() : 'U'}
           </div>
@@ -131,6 +150,15 @@ export function Sidebar() {
             <p className="text-xs text-[var(--color-text-muted)] truncate capitalize">{role || 'Guest'}</p>
           </div>
         </div>
+
+        {/* Logout Button */}
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-[var(--radius-sm)] text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+        >
+          <LogOut className="w-4 h-4" />
+          Sign Out
+        </button>
       </div>
     </aside>
   );

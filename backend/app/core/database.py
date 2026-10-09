@@ -1,5 +1,6 @@
 import os
 import ssl
+import socket
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from sqlalchemy import create_engine
@@ -24,6 +25,19 @@ if ":PORT" in DATABASE_URL or "YOUR_PASSWORD" in DATABASE_URL or not DATABASE_UR
 # Automatically convert standard mysql:// to mysql+pymysql://
 if DATABASE_URL.startswith("mysql://"):
     DATABASE_URL = "mysql+pymysql://" + DATABASE_URL[len("mysql://"):]
+
+# Verify MySQL host DNS resolution before attempting connection
+if DATABASE_URL.startswith("mysql"):
+    try:
+        parsed_check = urlparse(DATABASE_URL)
+        if parsed_check.hostname:
+            try:
+                socket.gethostbyname(parsed_check.hostname)
+            except (socket.gaierror, socket.herror, OSError) as dns_err:
+                print(f"[WARNING] Database host '{parsed_check.hostname}' cannot be resolved by DNS ({dns_err}). Falling back to SQLite.")
+                DATABASE_URL = "sqlite:///./test.db"
+    except Exception:
+        pass
 
 connect_args = {}
 

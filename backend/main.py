@@ -87,13 +87,16 @@ def background_initialization():
             db.close()
             print("[Startup] Database seeded successfully!")
             
-        import os
-        model_path = os.path.join(os.path.dirname(__file__), "app", "models", "xgboost_load_model.json")
-        if not os.path.exists(model_path):
+        from app.services.load_forecaster import MODEL_PATH, LoadForecaster
+        if not os.path.exists(MODEL_PATH):
             print("[Startup] Training XGBoost forecasting model...")
-            from train_model import train
-            train()
-            print("[Startup] XGBoost model trained successfully!")
+            db = SessionLocal()
+            try:
+                forecaster = LoadForecaster(db, factory_id=1)
+                forecaster.train(save=True)
+                print("[Startup] XGBoost model trained successfully!")
+            finally:
+                db.close()
     except Exception as e:
         print(f"[Startup Warning] Background initialization error: {e}")
 

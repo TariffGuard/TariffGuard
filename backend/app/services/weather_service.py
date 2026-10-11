@@ -113,14 +113,16 @@ class WeatherService:
         merged: Dict = {p: [] for p in HOURLY_PARAMS}
         merged["time"] = []
         today = date.today()
+        # Open-Meteo Archive API only provides data up to 5 days ago.
+        # Anything newer than 5 days ago or in future must use Forecast API.
+        archive_cutoff = today - timedelta(days=5)
 
         try:
             with httpx.Client(timeout=30) as client:
                 for chunk_start, chunk_end in chunks:
-                    # Choose forecast API for today/future dates, archive API for past dates
                     api_url = (
                         OPEN_METEO_FORECAST_URL
-                        if chunk_end >= today
+                        if chunk_start >= archive_cutoff or chunk_end >= archive_cutoff
                         else OPEN_METEO_ARCHIVE_URL
                     )
                     params = {

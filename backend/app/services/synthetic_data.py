@@ -412,11 +412,12 @@ class SyntheticDataGenerator:
         orders: List[ProductionOrder] = []
         now = datetime.now()
         start = now - timedelta(days=self.days)
+        future_end = now + timedelta(days=14)
 
         order_counter = 1
         current_date = start
 
-        while current_date < now:
+        while current_date < future_end:
             # Generate 2–4 orders per day
             n_orders = self.rng.randint(2, 4)
             for _ in range(n_orders):
@@ -441,9 +442,12 @@ class SyntheticDataGenerator:
 
                 order_no = f"ORD-{order_counter:03d}"
                 locked = self.rng.random() < 0.15  # 15% locked
-                status = self.rng.choice(
-                    ["pending", "pending", "pending", "completed", "in_progress"]
-                )
+                if current_date >= now:
+                    status = "pending"
+                else:
+                    status = self.rng.choice(
+                        ["pending", "pending", "pending", "completed", "in_progress"]
+                    )
 
                 order = ProductionOrder(
                     factory_id=factory_id,

@@ -43,8 +43,10 @@ export default function ScheduleOptimizerPage() {
         }));
         setMachines(mappedMachines);
 
-        setJobs([]);
-        setInitialFetchedJobs([]);
+        // Automatically run optimization for upcoming window on initial mount
+        setTimeout(() => {
+          handleOptimize();
+        }, 100);
       } catch (err) {
         console.error('Failed to init optimizer data:', err);
       }

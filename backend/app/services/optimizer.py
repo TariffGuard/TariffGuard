@@ -70,14 +70,22 @@ class ScheduleOptimizer:
     ) -> List[ProductionOrder]:
         """
         Get orders that are relevant for the given planning window.
-        An order is relevant if its deadline falls within or after
-        the window start AND it has not been completed.
+        Returns upcoming orders or any pending/in_progress backlog awaiting production.
         """
-        return self.db.query(ProductionOrder).filter(
+        future_orders = self.db.query(ProductionOrder).filter(
             ProductionOrder.factory_id == factory_id,
             ProductionOrder.status.in_(["pending", "in_progress"]),
             ProductionOrder.deadline >= start_time,
         ).all()
+        
+        if future_orders:
+            return future_orders
+
+        # If no future-deadline orders exist yet, schedule pending backlog
+        return self.db.query(ProductionOrder).filter(
+            ProductionOrder.factory_id == factory_id,
+            ProductionOrder.status.in_(["pending", "in_progress"]),
+        ).order_by(ProductionOrder.id.desc()).limit(25).all()
 
     # ------------------------------------------------------------------
     # Slot / rate helpers
@@ -163,12 +171,6 @@ class ScheduleOptimizer:
         feasible_orders = []
         for order in orders:
             dur = max(1, order.duration_minutes // 60)
-            # Skip orders whose deadline is before window start
-            if order.deadline and order.deadline < start_time:
-                continue
-            # Skip orders whose earliest_start is after window end
-            if order.earliest_start and order.earliest_start >= end_time:
-                continue
             # Skip orders too long for the window
             if dur > n_slots:
                 logger.warning(
@@ -176,6 +178,14 @@ class ScheduleOptimizer:
                     order.order_no, dur, n_slots,
                 )
                 continue
+            # Skip orders whose earliest_start is in the far future after window end
+            if order.earliest_start and order.earliest_start >= end_time:
+                continue
+            # Adapt overdue backlog deadlines to window end
+            if not order.deadline or order.deadline < start_time:
+                order.deadline = end_time
+            if order.earliest_start and order.earliest_start < start_time:
+                order.earliest_start = start_time
             feasible_orders.append(order)
         orders = feasible_orders
         n_orders = len(orders)

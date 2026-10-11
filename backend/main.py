@@ -74,11 +74,15 @@ def background_initialization():
     try:
         from app.core.database import SessionLocal
         from app.models.factory import Factory
+        from app.models.production_order import ProductionOrder
+        from app.models.meter_reading import MeterReading
         db = SessionLocal()
         factory_exists = db.query(Factory).first()
+        order_count = db.query(ProductionOrder).count()
+        reading_count = db.query(MeterReading).count()
         db.close()
         
-        if not factory_exists:
+        if not factory_exists or order_count == 0 or reading_count == 0:
             print("[Startup] Seeding initial factory database...")
             from app.services.synthetic_data import SyntheticDataGenerator
             db = SessionLocal()
@@ -99,6 +103,29 @@ def background_initialization():
                 db.close()
     except Exception as e:
         print(f"[Startup Warning] Background initialization error: {e}")
+
+@app.get("/api/seed")
+@app.post("/api/seed")
+async def trigger_seed_api(days: int = 30):
+    """Trigger data seeding and model training on demand via HTTP API"""
+    from app.core.database import SessionLocal
+    from app.services.synthetic_data import SyntheticDataGenerator
+    from app.services.load_forecaster import LoadForecaster
+    db = SessionLocal()
+    try:
+        gen = SyntheticDataGenerator(db, days=days)
+        summary = gen.generate()
+        model_trained = False
+        try:
+            forecaster = LoadForecaster(db, factory_id=summary["factory_id"])
+            forecaster.train(save=True)
+            model_trained = True
+        except Exception as e:
+            print(f"[API Seed] Model train notice: {e}")
+        summary["model_trained"] = model_trained
+        return {"status": "success", "summary": summary}
+    finally:
+        db.close()
 
 @app.on_event("startup")
 async def startup_event():

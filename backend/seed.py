@@ -93,6 +93,16 @@ def main():
         gen = SyntheticDataGenerator(db, days=args.days, seed=args.seed)
         summary = gen.generate()
 
+        # Automatically train the load forecasting model
+        model_trained = False
+        try:
+            from app.services.load_forecaster import LoadForecaster
+            forecaster = LoadForecaster(db, factory_id=summary["factory_id"])
+            forecaster.train(save=True)
+            model_trained = True
+        except Exception as model_err:
+            logger.warning("Could not auto-train model: %s", model_err)
+
         print("\n" + "=" * 60)
         print("  SEED DATA COMPLETE")
         print("=" * 60)
@@ -104,6 +114,7 @@ def main():
         print(f"  Production orders:{summary['production_orders']}")
         print(f"  Days covered:     {summary['days']}")
         print(f"  Data source:      {summary['data_source']}")
+        print(f"  Model trained:    {'Yes' if model_trained else 'Failed'}")
         print("=" * 60)
         print(f"\nDefault Users (password: Test@123):")
         print(f"  - owner / Test@123 (Owner)")

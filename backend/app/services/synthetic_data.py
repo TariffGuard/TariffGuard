@@ -10,7 +10,7 @@ import math
 import random
 import logging
 from datetime import datetime, timedelta, date
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from sqlalchemy.orm import Session
 
@@ -133,7 +133,14 @@ class SyntheticDataGenerator:
         meter_readings = self._generate_meter_readings(
             factory, machines, weather_records
         )
-        orders = self._create_production_orders(factory.id)
+        orders = self._create_production_orders(factory.id, machines)
+
+        # Generate initial alerts for dashboard
+        try:
+            from app.services.alert_service import AlertService
+            AlertService.generate_all_alerts(self.db, factory.id)
+        except Exception as alert_err:
+            logger.warning("Could not auto-generate initial alerts: %s", alert_err)
 
         summary = {
             "factory_id": factory.id,
@@ -154,19 +161,25 @@ class SyntheticDataGenerator:
     # ------------------------------------------------------------------
 
     def _create_factory(self) -> Factory:
-        factory = Factory(
-            name="Faisalabad Textile Unit 01",
-            location="Faisalabad, Pakistan",
-            tariff_category="Industrial",
-            sanctioned_load_kw=250,
-            solar_capacity_kw=100,
-            operating_hours="08:00-22:00",
-            working_days="Mon-Sat",
-        )
-        self.db.add(factory)
-        self.db.commit()
-        self.db.refresh(factory)
-        logger.info("Factory created: %s (ID %d)", factory.name, factory.id)
+        factory = self.db.query(Factory).filter(Factory.id == 1).first()
+        if not factory:
+            factory = self.db.query(Factory).first()
+        if not factory:
+            factory = Factory(
+                name="Faisalabad Textile Unit 01",
+                location="Faisalabad, Pakistan",
+                tariff_category="Industrial",
+                sanctioned_load_kw=250,
+                solar_capacity_kw=100,
+                operating_hours="08:00-22:00",
+                working_days="Mon-Sat",
+            )
+            self.db.add(factory)
+            self.db.commit()
+            self.db.refresh(factory)
+            logger.info("Factory created: %s (ID %d)", factory.name, factory.id)
+        else:
+            logger.info("Using factory: %s (ID %d)", factory.name, factory.id)
         return factory
 
     # ------------------------------------------------------------------
@@ -174,8 +187,20 @@ class SyntheticDataGenerator:
     # ------------------------------------------------------------------
 
     def _create_machines(self, factory_id: int) -> List[Machine]:
-        machines = []
+        existing_machines = (
+            self.db.query(Machine)
+            .filter(Machine.factory_id == factory_id)
+            .all()
+        )
+        if existing_machines and len(existing_machines) >= len(MACHINE_CATALOGUE):
+            logger.info("Using %d existing machines for factory %d", len(existing_machines), factory_id)
+            return existing_machines
+
+        machines = list(existing_machines)
+        existing_names = {m.name for m in existing_machines}
         for spec in MACHINE_CATALOGUE:
+            if spec["name"] in existing_names:
+                continue
             m = Machine(
                 factory_id=factory_id,
                 name=spec["name"],
@@ -196,7 +221,7 @@ class SyntheticDataGenerator:
         self.db.commit()
         for m in machines:
             self.db.refresh(m)
-        logger.info("Created %d machines", len(machines))
+        logger.info("Available %d machines for factory %d", len(machines), factory_id)
         return machines
 
     # ------------------------------------------------------------------
@@ -204,6 +229,11 @@ class SyntheticDataGenerator:
     # ------------------------------------------------------------------
 
     def _create_tariffs(self) -> List[Tariff]:
+        existing_tariffs = self.db.query(Tariff).all()
+        if existing_tariffs:
+            logger.info("Using %d existing tariff periods", len(existing_tariffs))
+            return existing_tariffs
+
         today = date.today()
         tariff_specs = [
             {
@@ -281,6 +311,10 @@ class SyntheticDataGenerator:
           shortwave_radiation × solar_capacity_kw / 1000 × efficiency
         """
         readings: List[MeterReading] = []
+
+        # Remove existing meter readings for this factory to avoid duplicates and ensure a fresh window
+        self.db.query(MeterReading).filter(MeterReading.factory_id == factory.id).delete()
+        self.db.commit()
 
         # Build a timestamp→weather lookup
         wx_map: Dict[datetime, Dict] = {}
@@ -408,11 +442,24 @@ class SyntheticDataGenerator:
     # Production orders — spread across the planning horizon
     # ------------------------------------------------------------------
 
-    def _create_production_orders(self, factory_id: int) -> List[ProductionOrder]:
+    def _create_production_orders(
+        self, factory_id: int, machines: Optional[List[Machine]] = None
+    ) -> List[ProductionOrder]:
+        # Clean existing production orders for this factory
+        self.db.query(ProductionOrder).filter(ProductionOrder.factory_id == factory_id).delete()
+        self.db.commit()
+
+        if not machines:
+            machines = self.db.query(Machine).filter(Machine.factory_id == factory_id).all()
+
         orders: List[ProductionOrder] = []
         now = datetime.now()
         start = now - timedelta(days=self.days)
         future_end = now + timedelta(days=14)
+
+        existing_order_nos = {
+            row[0] for row in self.db.query(ProductionOrder.order_no).all()
+        }
 
         order_counter = 1
         current_date = start
@@ -423,8 +470,13 @@ class SyntheticDataGenerator:
             for _ in range(n_orders):
                 process = self.rng.choice(PROCESS_TYPES)
                 machine_indices = MACHINE_TYPE_MAP.get(process, [0])
-                # Map catalogue indices → DB machine IDs (1-based)
-                machine_ids = [idx + 1 for idx in machine_indices]
+                # Map catalogue indices → actual DB machine IDs
+                if machines:
+                    machine_ids = [
+                        machines[idx].id for idx in machine_indices if idx < len(machines)
+                    ] or [machines[0].id]
+                else:
+                    machine_ids = [idx + 1 for idx in machine_indices]
 
                 duration = self.rng.choice([60, 90, 120, 150, 180, 240, 300])
                 priority = self.rng.choice([1, 1, 2, 2, 2, 3])
@@ -440,7 +492,12 @@ class SyntheticDataGenerator:
                 deadline_offset = self.rng.choice([4, 6, 8, 10, 12, 24])
                 deadline = earliest_start + timedelta(hours=deadline_offset)
 
-                order_no = f"ORD-{order_counter:03d}"
+                order_no = f"ORD-{order_counter:04d}"
+                while order_no in existing_order_nos:
+                    order_counter += 1
+                    order_no = f"ORD-{order_counter:04d}"
+                existing_order_nos.add(order_no)
+
                 locked = self.rng.random() < 0.15  # 15% locked
                 if current_date >= now:
                     status = "pending"
